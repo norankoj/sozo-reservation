@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Calendar from "react-calendar";
 import { format } from "date-fns";
 import { supabase } from "@/lib/supabase";
-import { ChevronLeft, UserCircle2 } from "lucide-react"; // 아이콘 추가
+import { ChevronLeft, UserCircle2 } from "lucide-react";
 import "@/style/calendar.css";
 
 type ValuePiece = Date | null;
@@ -36,7 +36,7 @@ export default function Home() {
         .from("sozo_availability")
         .select("*")
         .eq("is_open", true);
-      if (data) setAvailabilities(data);
+      setAvailabilities(data || []);
       setIsLoading(false);
     };
     fetchOpenDates();
@@ -140,13 +140,20 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center p-0 md:p-10">
       <div className="max-w-6xl w-full bg-white md:rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row h-screen md:h-[850px]">
-        {/* --- 왼쪽: 달력 및 모바일용 버튼 --- */}
+        {/* --- 왼쪽: 달력 영역 --- */}
         <div
           className={`w-full md:w-[45%] p-6 md:p-10 bg-white border-r border-gray-100 flex flex-col overflow-y-auto ${selectedGenderSeat ? "hidden md:flex" : "flex"}`}
         >
           <h1 className="text-3xl font-black text-[#4A628A] mb-8 tracking-tighter">
             SOZO 예약
           </h1>
+
+          {!isLoading && availabilities.length === 0 && (
+            <div className="bg-red-50 text-red-600 p-5 rounded-2xl mb-8 text-center text-sm font-bold border border-red-100 shadow-sm animate-fade-in">
+              현재 예약 가능한 일정이 모두 마감되었습니다.
+            </div>
+          )}
+
           <div className="flex-1">
             <Calendar
               onChange={setDateValue}
@@ -193,7 +200,6 @@ export default function Home() {
           <div className="p-6 md:p-10 w-full">
             {selectedDayInfo ? (
               <div className="space-y-8 animate-fade-in">
-                {/* 모바일 전용 상단 네비게이션 */}
                 <div className="md:hidden flex flex-col gap-4 mb-6">
                   <button
                     type="button"
@@ -202,7 +208,6 @@ export default function Home() {
                   >
                     <ChevronLeft size={20} /> 날짜 다시 선택하기
                   </button>
-                  {/* 💡 모바일 전용 성별 확인 배너 */}
                   <div
                     className={`flex items-center justify-center gap-2 py-4 rounded-2xl font-black shadow-lg ${gender === "남자" ? "bg-blue-50 text-blue-600 border border-blue-500" : "bg-red-50 text-red-600 border border-red-500"}`}
                   >
@@ -217,7 +222,6 @@ export default function Home() {
                   </h2>
                 </div>
 
-                {/* PC 전용 좌석 선택 버튼 */}
                 <div className="hidden md:block">
                   <SeatSelector isMobile={false} />
                 </div>
@@ -392,13 +396,13 @@ export default function Home() {
                         <textarea
                           value={expectations}
                           onChange={(e) => setExpectations(e.target.value)}
-                          className="w-full border border-gray-200 rounded-xl p-4 text-sm h-28 outline-none focus:ring-2 focus:ring-[#4A628A] bg-gray-50 resize-none font-sans"
+                          className="w-full border border-gray-200 rounded-xl p-4 text-sm h-28 outline-none focus:ring-2 focus:ring-[#4A628A] bg-gray-50 resize-none"
                           placeholder="소조사역을 통해 기대하는 것"
                         />
                         <textarea
                           value={questions}
                           onChange={(e) => setQuestions(e.target.value)}
-                          className="w-full border border-gray-200 rounded-xl p-4 text-sm h-28 outline-none focus:ring-2 focus:ring-[#4A628A] bg-gray-50 resize-none font-sans"
+                          className="w-full border border-gray-200 rounded-xl p-4 text-sm h-28 outline-none focus:ring-2 focus:ring-[#4A628A] bg-gray-50 resize-none"
                           placeholder="소조사역과 관련 궁금한 것"
                         />
                       </div>
