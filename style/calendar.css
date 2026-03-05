@@ -1,0 +1,127 @@
+/* styles/calendar.css */
+
+/* --- 공통 기본 설정 --- */
+
+.react-calendar__navigation {
+  display: flex !important;
+  height: 60px;
+  margin-bottom: 1rem;
+}
+.react-calendar__navigation button {
+  min-width: 44px;
+  background: none;
+  font-size: 1.1rem;
+  font-weight: bold;
+  border-radius: 8px;
+}
+.react-calendar__navigation button:enabled:hover,
+.react-calendar__navigation button:enabled:focus {
+  background-color: #f3f4f6;
+}
+
+/* 달력 컨테이너 */
+.react-calendar {
+  width: 100%;
+  height: 100%;
+  border: none;
+  font-family:
+    "Pretendard",
+    -apple-system,
+    BlinkMacSystemFont,
+    system-ui,
+    sans-serif !important;
+  color: #111827 !important;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  line-height: 1.125em;
+}
+
+/* 내부 구조가 남는 공간 차지하도록 설정 */
+.react-calendar__viewContainer,
+.react-calendar__month-view,
+.react-calendar__month-view > div,
+.react-calendar__month-view > div > div {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* 요일 헤더 (일, 월, 화...) */
+.react-calendar__month-view__weekdays {
+  text-align: center;
+  font-weight: 500;
+  font-size: 0.8rem;
+  color: #6b7280;
+  text-decoration: none;
+  margin-bottom: 0.5rem;
+  flex: 0 0 auto;
+}
+abbr[title] {
+  text-decoration: none !important;
+}
+
+/* 날짜 영역 Grid 설정 */
+.react-calendar__month-view__days {
+  display: grid !important;
+  grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: 1fr;
+  height: 100% !important;
+  flex: 1 !important;
+}
+
+/* 날짜 칸 스타일 */
+.react-calendar__tile {
+  padding: 8px 4px !important; /* 클릭하기 편하게 위아래 여백을 조금 늘렸습니다 */
+  height: auto !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  position: relative;
+  color: #111827 !important;
+  border-bottom: 1px solid #f9fafb;
+  border-right: 1px solid #f9fafb;
+  overflow: hidden;
+  border-radius: 8px; /* 칸을 살짝 둥글게 */
+  transition: all 0.2s ease-in-out;
+}
+
+/* --- 색상 설정 --- */
+/* 요일별 색상 (일: 빨강, 토: 파랑) */
+.react-calendar__month-view__weekdays__weekday:nth-child(1) abbr,
+.react-calendar__month-view__days__day:nth-child(7n + 1) {
+  color: #ef4444 !important;
+}
+.react-calendar__month-view__weekdays__weekday:nth-child(7) abbr,
+.react-calendar__month-view__days__day:nth-child(7n) {
+  color: #2563eb !important;
+}
+
+/* 이전/다음 달 날짜 색상 */
+.react-calendar__month-view__days__day--neighboringMonth,
+.react-calendar__tile.react-calendar__month-view__days__day--neighboringMonth {
+  color: #d1d5db !important;
+}
+
+/* 오늘 및 선택된 날짜 */
+.react-calendar__tile--now {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  font-weight: 600;
+}
+.react-calendar__tile--active {
+  background: #4a628a !important; /* SOZO 테마 컬러로 변경! */
+  color: white !important;
+  font-weight: bold;
+}
+.react-calendar__tile:enabled:hover,
+.react-calendar__tile:enabled:focus {
+  background-color: #f3f4f6;
+}
+
+/* 버튼 폰트 상속 강제 */
+.react-calendar button {
+  font-family: inherit !important;
+}
