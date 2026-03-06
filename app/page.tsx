@@ -387,7 +387,7 @@ export default function Home() {
                         onChange={(e) => setUserCell(e.target.value)}
                         className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg outline-none focus:border-[#4A628A] bg-gray-50 focus:bg-white transition-all"
                         required
-                        placeholder="예: 청년 1셀"
+                        placeholder="예: 1A16"
                       />
                     </div>
                     <div className="space-y-2">
