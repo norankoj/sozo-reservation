@@ -2,247 +2,448 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import Calendar from "react-calendar";
-import { format } from "date-fns";
-import { Edit2, CheckCircle, XCircle } from "lucide-react";
-import "@/style/calendar.css";
-
-type ValuePiece = Date | null;
-type Value = ValuePiece | [ValuePiece, ValuePiece];
+import {
+  Plus,
+  Save,
+  X,
+  Edit2,
+  Trash2,
+  ArrowUpDown,
+  ChevronUp,
+  ChevronDown,
+} from "lucide-react";
 
 export default function AdminSettings() {
-  const [dateValue, setDateValue] = useState<Value>(new Date());
-  const [formattedDate, setFormattedDate] = useState(
-    format(new Date(), "yyyy-MM-dd"),
-  );
+  const [availabilities, setAvailabilities] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [maxMale, setMaxMale] = useState(0);
-  const [maxFemale, setMaxFemale] = useState(0);
-  const [isOpen, setIsOpen] = useState(false);
-  const [availabilities, setAvailabilities] = useState<any[]>([]); // 💡 설정된 날짜 리스트 상태 추가
+  // 현재 수정 중인 행의 ID ('new'는 새로 추가 중인 행)
+  const [editingId, setEditingId] = useState<string | null>(null);
 
-  // 1. 전체 설정 리스트 불러오기
+  // 수정 중인 폼 데이터
+  const [editForm, setEditForm] = useState({
+    target_date: "",
+    session_time: "오전 10시",
+    max_male: 0,
+    max_female: 0,
+    is_open: true,
+  });
+
+  // 💡 정렬(Sorting) 상태 관리
+  const [sortConfig, setSortConfig] = useState<{
+    key: string;
+    direction: "asc" | "desc";
+  }>({
+    key: "target_date",
+    direction: "desc", // 기본값: 최신 날짜가 위로
+  });
+
+  // 1. 데이터 불러오기
   const fetchAllAvailabilities = async () => {
-    const { data } = await supabase
-      .from("sozo_availability")
-      .select("*")
-      .order("target_date", { ascending: true });
-
+    setIsLoading(true);
+    const { data } = await supabase.from("sozo_availability").select("*");
     if (data) setAvailabilities(data);
+    setIsLoading(false);
   };
 
   useEffect(() => {
     fetchAllAvailabilities();
   }, []);
 
-  // 2. 달력 날짜 클릭 시 기존 설정 불러오기
-  useEffect(() => {
-    if (dateValue instanceof Date) {
-      const targetDate = format(dateValue, "yyyy-MM-dd");
-      setFormattedDate(targetDate);
-      fetchExistingSetting(targetDate);
+  // 💡 2. 데이터 정렬 로직
+  const sortedAvailabilities = [...availabilities].sort((a, b) => {
+    if (sortConfig.key === "target_date") {
+      if (a.target_date < b.target_date)
+        return sortConfig.direction === "asc" ? -1 : 1;
+      if (a.target_date > b.target_date)
+        return sortConfig.direction === "asc" ? 1 : -1;
+      return 0;
     }
-  }, [dateValue]);
-
-  const fetchExistingSetting = async (targetDate: string) => {
-    const { data } = await supabase
-      .from("sozo_availability")
-      .select("*")
-      .eq("target_date", targetDate)
-      .maybeSingle();
-
-    if (data) {
-      setMaxMale(data.max_male);
-      setMaxFemale(data.max_female);
-      setIsOpen(data.is_open);
-    } else {
-      setMaxMale(0);
-      setMaxFemale(0);
-      setIsOpen(false);
+    if (sortConfig.key === "is_open") {
+      // true(오픈)와 false(마감) 정렬
+      const valA = a.is_open ? 1 : 0;
+      const valB = b.is_open ? 1 : 0;
+      return sortConfig.direction === "asc" ? valA - valB : valB - valA;
     }
+    return 0;
+  });
+
+  // 💡 3. 테이블 헤더 클릭 시 정렬 방향 바꾸기
+  const requestSort = (key: string) => {
+    let direction: "asc" | "desc" = "desc";
+    if (sortConfig.key === key && sortConfig.direction === "desc") {
+      direction = "asc";
+    }
+    setSortConfig({ key, direction });
   };
 
-  // 3. 리스트에서 [수정] 버튼 클릭 시 실행되는 함수
-  const handleEditClick = (item: any) => {
-    const newDate = new Date(item.target_date);
-    setDateValue(newDate); // 달력 위치 이동
-    setFormattedDate(item.target_date);
-    setMaxMale(item.max_male);
-    setMaxFemale(item.max_female);
-    setIsOpen(item.is_open);
-
-    // 페이지 상단으로 스무스하게 이동 (모바일/긴 페이지 대비)
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  // 4. 저장/수정 함수
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const { error } = await supabase.from("sozo_availability").upsert(
-      {
-        target_date: formattedDate,
-        max_male: maxMale,
-        max_female: maxFemale,
-        is_open: isOpen,
-      },
-      { onConflict: "target_date" },
+  // 💡 4. 정렬 아이콘 렌더링 함수
+  const getSortIcon = (columnName: string) => {
+    if (sortConfig.key !== columnName)
+      return <ArrowUpDown size={14} className="text-gray-300" />;
+    return sortConfig.direction === "asc" ? (
+      <ChevronUp size={16} className="text-[#4A628A]" />
+    ) : (
+      <ChevronDown size={16} className="text-[#4A628A]" />
     );
+  };
 
-    if (error) {
-      alert("저장 중 오류가 발생했습니다.");
+  // 새로운 일정 추가
+  const handleAddNew = () => {
+    if (editingId)
+      return alert("먼저 작성 중인 내용을 저장하거나 취소해 주세요.");
+    setEditingId("new");
+    setEditForm({
+      target_date: "",
+      session_time: "오전 10시",
+      max_male: 0,
+      max_female: 0,
+      is_open: true,
+    });
+  };
+
+  // 기존 일정 수정
+  const handleEdit = (item: any) => {
+    if (editingId)
+      return alert("먼저 작성 중인 내용을 저장하거나 취소해 주세요.");
+    setEditingId(item.id);
+    setEditForm({
+      target_date: item.target_date,
+      session_time: item.session_time || "오전 10시",
+      max_male: item.max_male,
+      max_female: item.max_female,
+      is_open: item.is_open,
+    });
+  };
+
+  // 저장 (추가 또는 수정)
+  const handleSave = async () => {
+    if (!editForm.target_date) return alert("예약 날짜를 선택해 주세요.");
+    if (!editForm.session_time) return alert("시간을 입력해 주세요.");
+
+    const payload = {
+      target_date: editForm.target_date,
+      session_time: editForm.session_time,
+      max_male: Number(editForm.max_male),
+      max_female: Number(editForm.max_female),
+      is_open: editForm.is_open,
+    };
+
+    if (editingId === "new") {
+      const { error } = await supabase
+        .from("sozo_availability")
+        .insert([payload]);
+      if (error) {
+        if (error.code === "23505")
+          return alert("이미 설정된 날짜입니다. 기존 목록에서 수정해 주세요.");
+        return alert("저장 중 오류가 발생했습니다.");
+      }
     } else {
-      alert(`${formattedDate} 설정이 저장되었습니다.`);
-      fetchAllAvailabilities(); // 💡 저장 후 하단 리스트 새로고침
+      const { error } = await supabase
+        .from("sozo_availability")
+        .update(payload)
+        .eq("id", editingId);
+      if (error) return alert("수정 중 오류가 발생했습니다.");
     }
+
+    setEditingId(null);
+    fetchAllAvailabilities();
+  };
+
+  // 삭제
+  const handleDelete = async (id: string, date: string) => {
+    if (!confirm(`${date} 일정을 정말 삭제하시겠습니까?`)) return;
+    const { error } = await supabase
+      .from("sozo_availability")
+      .delete()
+      .eq("id", id);
+    if (error) alert("삭제 중 오류가 발생했습니다.");
+    else fetchAllAvailabilities();
+  };
+
+  // 입력값 변경 핸들러
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+  ) => {
+    const { name, value } = e.target;
+    setEditForm((prev) => ({
+      ...prev,
+      [name]: value === "true" ? true : value === "false" ? false : value,
+    }));
   };
 
   return (
-    <div className="space-y-10">
-      <div className="max-w-4xl flex flex-col md:flex-row gap-8">
-        {/* 왼쪽: 달력 */}
-        <div className="w-full md:w-1/2">
-          <h1 className="text-2xl font-bold mb-6 text-gray-800">
-            📅 날짜 선택
+    <div className="space-y-8">
+      {/* 상단 헤더 및 추가 버튼 */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+        <div>
+          <h1 className="text-2xl font-black text-gray-800 tracking-tight">
+            ⚙️ 예약 일정 설정
           </h1>
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex justify-center h-[450px]">
-            <Calendar
-              onChange={setDateValue}
-              value={dateValue}
-              formatDay={(locale, date) => format(date, "d")}
-              next2Label={null}
-              prev2Label={null}
-            />
-          </div>
+          <p className="text-gray-500 mt-1">
+            예약 가능한 날짜와 시간, 인원을 직관적으로 관리하세요.
+          </p>
         </div>
-
-        {/* 오른쪽: 설정 폼 */}
-        <div className="w-full md:w-1/2">
-          <h1 className="text-2xl font-bold mb-6 text-gray-800">
-            ⚙️ 예약 인원 설정
-          </h1>
-          <form
-            onSubmit={handleSave}
-            className="bg-white p-6 rounded-xl shadow-sm border border-gray-200"
-          >
-            <div className="mb-6 pb-4 border-b border-gray-100 flex justify-between items-center">
-              <span className="text-gray-500 font-medium">선택된 날짜</span>
-              <span className="text-xl font-bold text-[#4A628A]">
-                {formattedDate}
-              </span>
-            </div>
-
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    남자 정원 (명)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={maxMale}
-                    onChange={(e) => setMaxMale(Number(e.target.value))}
-                    className="w-full border border-gray-300 rounded-lg p-3 text-center text-lg font-bold text-blue-600 focus:ring-2 focus:ring-[#4A628A] outline-none transition"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    여자 정원 (명)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={maxFemale}
-                    onChange={(e) => setMaxFemale(Number(e.target.value))}
-                    className="w-full border border-gray-300 rounded-lg p-3 text-center text-lg font-bold text-red-500 focus:ring-2 focus:ring-[#4A628A] outline-none transition"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center bg-gray-50 p-4 rounded-lg border border-gray-100 mt-4">
-                <input
-                  type="checkbox"
-                  id="isOpen"
-                  checked={isOpen}
-                  onChange={(e) => setIsOpen(e.target.checked)}
-                  className="w-6 h-6 text-[#4A628A] rounded focus:ring-[#4A628A] cursor-pointer"
-                />
-                <label
-                  htmlFor="isOpen"
-                  className="ml-3 cursor-pointer font-bold text-gray-700"
-                >
-                  이 날짜의 예약을 오픈합니다 (ON)
-                </label>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              className="mt-8 w-full bg-[#4A628A] text-white font-bold py-4 rounded-lg hover:bg-[#3A4D6D] transition shadow-md"
-            >
-              설정 저장 / 수정하기
-            </button>
-          </form>
-        </div>
+        <button
+          onClick={handleAddNew}
+          className="flex items-center gap-2 bg-[#4A628A] text-white px-5 py-3 rounded-xl font-bold hover:bg-[#3A4D6D] transition active:scale-95 shadow-md"
+        >
+          <Plus size={20} /> 새로운 일정 추가
+        </button>
       </div>
 
-      {/* 💡 하단: 설정 현황 테이블 추가 */}
-      <div className="max-w-4xl">
-        <h2 className="text-2xl font-bold mb-6 text-gray-800">
-          📋 현재 설정된 날짜 리스트
-        </h2>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full text-center">
-            <thead className="bg-gray-50 border-b border-gray-200">
+      {/* 리스트 테이블 영역 */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-center whitespace-nowrap">
+            <thead className="bg-gray-50 border-b border-gray-200 select-none">
               <tr>
-                <th className="py-4 px-4 text-gray-600 font-bold">날짜</th>
-                <th className="py-4 px-4 text-gray-600 font-bold">남자</th>
-                <th className="py-4 px-4 text-gray-600 font-bold">여자</th>
-                <th className="py-4 px-4 text-gray-600 font-bold">상태</th>
-                <th className="py-4 px-4 text-gray-600 font-bold">관리</th>
+                <th
+                  className="py-4 px-4 text-gray-700 font-bold cursor-pointer hover:bg-gray-200 transition group"
+                  onClick={() => requestSort("target_date")}
+                  title="날짜순으로 정렬"
+                >
+                  <div className="flex items-center justify-center gap-1.5">
+                    날짜 {getSortIcon("target_date")}
+                  </div>
+                </th>
+
+                <th className="py-4 px-4 text-gray-700 font-bold">시간</th>
+                <th className="py-4 px-4 text-blue-600 font-bold">남자 정원</th>
+                <th className="py-4 px-4 text-red-500 font-bold">여자 정원</th>
+
+                <th
+                  className="py-4 px-4 text-gray-700 font-bold cursor-pointer hover:bg-gray-200 transition group"
+                  onClick={() => requestSort("is_open")}
+                  title="오픈/마감 상태로 정렬"
+                >
+                  <div className="flex items-center justify-center gap-1.5">
+                    상태 {getSortIcon("is_open")}
+                  </div>
+                </th>
+
+                <th className="py-4 px-4 text-gray-700 font-bold">관리</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {availabilities.length === 0 ? (
+              {/* 새로 추가하는 행 */}
+              {editingId === "new" && (
+                <tr className="bg-blue-50/30 animate-fade-in shadow-inner">
+                  <td className="py-3 px-3">
+                    <input
+                      type="date"
+                      name="target_date"
+                      value={editForm.target_date}
+                      onChange={handleChange}
+                      className="w-full border border-gray-300 rounded-lg p-2 outline-none focus:border-[#4A628A] font-bold"
+                    />
+                  </td>
+                  <td className="py-3 px-3">
+                    <input
+                      type="text"
+                      name="session_time"
+                      value={editForm.session_time}
+                      onChange={handleChange}
+                      placeholder="오전 10시"
+                      className="w-28 border border-gray-300 rounded-lg p-2 outline-none focus:border-[#4A628A] text-center font-bold"
+                    />
+                  </td>
+                  <td className="py-3 px-3">
+                    <input
+                      type="number"
+                      name="max_male"
+                      min="0"
+                      value={editForm.max_male}
+                      onChange={handleChange}
+                      className="w-20 border border-gray-300 rounded-lg p-2 outline-none focus:border-[#4A628A] text-center text-blue-600 font-bold"
+                    />
+                  </td>
+                  <td className="py-3 px-3">
+                    <input
+                      type="number"
+                      name="max_female"
+                      min="0"
+                      value={editForm.max_female}
+                      onChange={handleChange}
+                      className="w-20 border border-gray-300 rounded-lg p-2 outline-none focus:border-[#4A628A] text-center text-red-500 font-bold"
+                    />
+                  </td>
+                  <td className="py-3 px-3">
+                    <select
+                      name="is_open"
+                      value={editForm.is_open.toString()}
+                      onChange={handleChange}
+                      className="border border-gray-300 rounded-lg p-2 outline-none focus:border-[#4A628A] font-bold cursor-pointer"
+                    >
+                      <option value="true" className="text-green-600">
+                        🟢 오픈
+                      </option>
+                      <option value="false" className="text-gray-500">
+                        🔴 마감(닫힘)
+                      </option>
+                    </select>
+                  </td>
+                  <td className="py-3 px-3">
+                    <div className="flex justify-center gap-2">
+                      <button
+                        onClick={handleSave}
+                        className="flex items-center gap-1 bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition font-bold text-xs"
+                      >
+                        <Save size={16} /> 저장
+                      </button>
+                      <button
+                        onClick={() => setEditingId(null)}
+                        className="flex items-center gap-1 bg-gray-300 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-400 transition font-bold text-xs"
+                      >
+                        <X size={16} /> 취소
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+
+              {/* 기존 데이터 렌더링 (정렬된 데이터 사용!) */}
+              {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="py-10 text-gray-400">
-                    설정된 예약 일정이 없습니다.
+                  <td colSpan={6} className="py-10 text-gray-400 font-bold">
+                    데이터를 불러오는 중입니다...
+                  </td>
+                </tr>
+              ) : sortedAvailabilities.length === 0 && editingId !== "new" ? (
+                <tr>
+                  <td colSpan={6} className="py-10 text-gray-400 font-bold">
+                    등록된 일정이 없습니다. 새로운 일정을 추가해 주세요.
                   </td>
                 </tr>
               ) : (
-                availabilities.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50 transition">
-                    <td className="py-4 px-4 font-semibold text-gray-700">
-                      {item.target_date}
-                    </td>
-                    <td className="py-4 px-4 text-blue-600 font-medium">
-                      {item.max_male}명
-                    </td>
-                    <td className="py-4 px-4 text-red-500 font-medium">
-                      {item.max_female}명
-                    </td>
-                    <td className="py-4 px-4">
-                      {item.is_open ? (
-                        <div className="flex items-center justify-center gap-1 text-green-600 font-bold text-xs">
-                          <CheckCircle size={14} /> 오픈됨
+                sortedAvailabilities.map((item) => {
+                  const isEditing = editingId === item.id;
+
+                  return isEditing ? (
+                    // 수정 모드인 행
+                    <tr key={item.id} className="bg-blue-50/30 shadow-inner">
+                      <td className="py-3 px-3">
+                        <input
+                          type="date"
+                          name="target_date"
+                          value={editForm.target_date}
+                          onChange={handleChange}
+                          className="w-full border border-gray-300 rounded-lg p-2 outline-none focus:border-[#4A628A] font-bold"
+                        />
+                      </td>
+                      <td className="py-3 px-3">
+                        <input
+                          type="text"
+                          name="session_time"
+                          value={editForm.session_time}
+                          onChange={handleChange}
+                          className="w-28 border border-gray-300 rounded-lg p-2 outline-none focus:border-[#4A628A] text-center font-bold"
+                        />
+                      </td>
+                      <td className="py-3 px-3">
+                        <input
+                          type="number"
+                          name="max_male"
+                          min="0"
+                          value={editForm.max_male}
+                          onChange={handleChange}
+                          className="w-20 border border-gray-300 rounded-lg p-2 outline-none focus:border-[#4A628A] text-center text-blue-600 font-bold"
+                        />
+                      </td>
+                      <td className="py-3 px-3">
+                        <input
+                          type="number"
+                          name="max_female"
+                          min="0"
+                          value={editForm.max_female}
+                          onChange={handleChange}
+                          className="w-20 border border-gray-300 rounded-lg p-2 outline-none focus:border-[#4A628A] text-center text-red-500 font-bold"
+                        />
+                      </td>
+                      <td className="py-3 px-3">
+                        <select
+                          name="is_open"
+                          value={editForm.is_open.toString()}
+                          onChange={handleChange}
+                          className="border border-gray-300 rounded-lg p-2 outline-none focus:border-[#4A628A] font-bold cursor-pointer"
+                        >
+                          <option value="true" className="text-green-600">
+                            🟢 오픈
+                          </option>
+                          <option value="false" className="text-gray-500">
+                            🔴 마감(닫힘)
+                          </option>
+                        </select>
+                      </td>
+                      <td className="py-3 px-3">
+                        <div className="flex justify-center gap-2">
+                          <button
+                            onClick={handleSave}
+                            className="flex items-center gap-1 bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition font-bold text-xs"
+                          >
+                            <Save size={16} /> 저장
+                          </button>
+                          <button
+                            onClick={() => setEditingId(null)}
+                            className="flex items-center gap-1 bg-gray-300 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-400 transition font-bold text-xs"
+                          >
+                            <X size={16} /> 취소
+                          </button>
                         </div>
-                      ) : (
-                        <div className="flex items-center justify-center gap-1 text-gray-400 font-bold text-xs">
-                          <XCircle size={14} /> 닫힘
+                      </td>
+                    </tr>
+                  ) : (
+                    // 일반 보기 모드인 행
+                    <tr
+                      key={item.id}
+                      className="hover:bg-gray-50 transition border-b border-gray-50"
+                    >
+                      <td className="py-4 px-4 font-bold text-gray-800 text-lg">
+                        {item.target_date}
+                      </td>
+                      <td className="py-4 px-4 font-bold text-gray-600">
+                        {item.session_time || "오전 10시"}
+                      </td>
+                      <td className="py-4 px-4 text-blue-600 font-bold text-lg">
+                        {item.max_male}명
+                      </td>
+                      <td className="py-4 px-4 text-red-500 font-bold text-lg">
+                        {item.max_female}명
+                      </td>
+                      <td className="py-4 px-4">
+                        {item.is_open ? (
+                          <span className="bg-green-100 text-green-700 px-3 py-1.5 rounded-full text-xs font-black shadow-sm">
+                            🟢 오픈됨
+                          </span>
+                        ) : (
+                          <span className="bg-gray-100 text-gray-500 px-3 py-1.5 rounded-full text-xs font-black shadow-sm">
+                            🔴 닫힘
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-4 px-4">
+                        <div className="flex justify-center gap-2">
+                          <button
+                            onClick={() => handleEdit(item)}
+                            className="bg-gray-100 text-gray-600 p-2 rounded-lg hover:bg-[#4A628A] hover:text-white transition shadow-sm"
+                            title="수정"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() =>
+                              handleDelete(item.id, item.target_date)
+                            }
+                            className="bg-red-50 text-red-500 p-2 rounded-lg hover:bg-red-500 hover:text-white transition shadow-sm"
+                            title="삭제"
+                          >
+                            <Trash2 size={16} />
+                          </button>
                         </div>
-                      )}
-                    </td>
-                    <td className="py-4 px-4">
-                      <button
-                        onClick={() => handleEditClick(item)}
-                        className="flex items-center gap-1 mx-auto bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#4A628A] hover:text-white transition"
-                      >
-                        <Edit2 size={12} /> 수정
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
