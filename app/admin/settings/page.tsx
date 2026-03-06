@@ -181,7 +181,7 @@ export default function AdminSettings() {
             ⚙️ 예약 일정 설정
           </h1>
           <p className="text-gray-500 mt-1">
-            예약 가능한 날짜와 시간, 인원을 직관적으로 관리하세요.
+            예약 가능한 날짜와 시간, 인원을 설정하고 관리할 수 있습니다.
           </p>
         </div>
         <button
