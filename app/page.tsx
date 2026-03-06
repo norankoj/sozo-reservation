@@ -8,7 +8,9 @@ import {
   UserCircle2,
   CalendarDays,
   Clock,
-  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
 } from "lucide-react";
 
 export default function Home() {
@@ -20,6 +22,8 @@ export default function Home() {
   const [selectedGenderSeat, setSelectedGenderSeat] = useState<string | null>(
     null,
   );
+
+  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
 
   const [userName, setUserName] = useState("");
   const [userCell, setUserCell] = useState("");
@@ -119,7 +123,23 @@ export default function Home() {
       alert("예약 중 오류가 발생했습니다.");
       setIsLoading(false);
     } else {
-      alert("🎉 예약이 성공적으로 완료되었습니다!");
+      try {
+        await fetch("/api/send-message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userName: userName,
+            userPhone: userPhone,
+            targetDate: selectedDayInfo.target_date,
+            sessionTime: selectedDayInfo.session_time || "오전 10시",
+          }),
+        });
+      } catch (smsError) {
+        console.error("문자 발송 실패:", smsError);
+        // 메시지 발송에 실패하더라도 예약 DB 저장은 성공한 것이므로 다음 단계로 넘어감
+      }
+
+      alert("예약이 성공적으로 완료되었습니다!");
       const { data: resData } = await supabase
         .from("sozo_reservations")
         .select("*");
@@ -127,6 +147,25 @@ export default function Home() {
 
       handleBack();
       setIsLoading(false);
+    }
+  };
+
+  const toggleDate = (id: string) => {
+    setExpandedDates((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const isAllExpanded =
+    availabilities.length > 0 && expandedDates.size === availabilities.length;
+  const toggleAll = () => {
+    if (isAllExpanded) {
+      setExpandedDates(new Set());
+    } else {
+      setExpandedDates(new Set(availabilities.map((a) => a.id)));
     }
   };
 
@@ -144,11 +183,11 @@ export default function Home() {
               SOZO 예약
             </h1>
             <p className="text-blue-100 text-base md:text-lg font-medium">
-              원하시는 날짜와 좌석을 선택해 주세요.
+              원하시는 날짜를 선택해 주세요.
             </p>
           </div>
 
-          <div className="flex-1 md:overflow-y-auto p-6 md:p-8 space-y-6">
+          <div className="flex-1 md:overflow-y-auto p-4 md:p-6 space-y-4">
             {isLoading ? (
               <div className="text-center py-20 text-gray-400 text-lg font-bold">
                 일정을 불러오는 중입니다...
@@ -159,102 +198,137 @@ export default function Home() {
                 기다려주세요!
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-6 pb-10">
-                {availabilities.map((day) => {
-                  const dateObj = parseISO(day.target_date);
-                  const dayOfWeek = WEEKDAYS[getDay(dateObj)];
-                  const { remainMale, remainFemale } = getRemainingSeats(
-                    day.target_date,
-                    day.max_male,
-                    day.max_female,
-                  );
-                  const displayTime = day.session_time || "오전 10시";
+              <div className="pb-10">
+                <div className="flex justify-end mb-3">
+                  <button
+                    onClick={toggleAll}
+                    className="flex items-center gap-1.5 text-sm font-bold text-gray-500 hover:text-[#4A628A] transition-colors bg-white px-4 py-2 rounded-full shadow-sm border border-gray-200"
+                  >
+                    <ChevronsUpDown size={16} />
+                    {isAllExpanded ? "전체 접기" : "전체 펼치기"}
+                  </button>
+                </div>
 
-                  return (
-                    <div
-                      key={day.id}
-                      className="bg-white border-2 border-gray-100 rounded-3xl p-6 shadow-sm hover:shadow-md transition-all"
-                    >
-                      <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-100 pb-4 mb-4 gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className="bg-gray-100 p-3 rounded-full text-[#4A628A]">
-                            <CalendarDays size={28} />
-                          </div>
-                          <div>
-                            <h2 className="text-2xl font-black text-gray-800">
-                              {format(dateObj, "yyyy년 MM월 dd일")}{" "}
-                              <span className="text-gray-400 text-xl">
-                                ({dayOfWeek})
-                              </span>
-                            </h2>
-                            <div className="flex items-center gap-1.5 text-gray-600 font-bold mt-1 text-base md:text-lg">
-                              <Clock size={18} /> {displayTime} (90분 세션)
+                {/* 💡 아코디언 여백(gap) 축소: space-y-4 -> space-y-3 */}
+                <div className="space-y-3">
+                  {availabilities.map((day) => {
+                    const dateObj = parseISO(day.target_date);
+                    const dayOfWeek = WEEKDAYS[getDay(dateObj)];
+                    const { remainMale, remainFemale } = getRemainingSeats(
+                      day.target_date,
+                      day.max_male,
+                      day.max_female,
+                    );
+                    const displayTime = day.session_time || "오전 10시";
+                    const isExpanded = expandedDates.has(day.id);
+
+                    return (
+                      <div
+                        key={day.id}
+                        className="bg-white border-2 border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden"
+                      >
+                        {/* 💡 카드 헤더 여백(padding) 축소: p-6 -> p-4 md:p-5 */}
+                        <div
+                          onClick={() => toggleDate(day.id)}
+                          className="flex items-center justify-between p-4 md:p-5 cursor-pointer hover:bg-gray-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="bg-gray-100 p-2.5 rounded-full text-[#4A628A]">
+                              <CalendarDays size={24} />
+                            </div>
+                            <div>
+                              <h2 className="text-lg md:text-xl font-black text-gray-800">
+                                {format(dateObj, "yyyy년 MM월 dd일")}{" "}
+                                <span className="text-gray-400 text-base md:text-lg">
+                                  ({dayOfWeek})
+                                </span>
+                              </h2>
+                              <div className="flex items-center gap-1.5 text-gray-600 font-bold mt-0.5 text-sm">
+                                <Clock size={14} /> {displayTime} (90분 세션)
+                              </div>
                             </div>
                           </div>
+                          <div
+                            className={`p-1.5 rounded-full transition-transform duration-300 ${isExpanded ? "bg-blue-50 text-[#4A628A]" : "bg-gray-50 text-gray-400"}`}
+                          >
+                            {isExpanded ? (
+                              <ChevronUp size={20} />
+                            ) : (
+                              <ChevronDown size={20} />
+                            )}
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <button
-                          onClick={() =>
-                            remainMale > 0 && handleSeatClick(day, "남자")
-                          }
-                          className={`flex flex-col items-center justify-center p-5 rounded-2xl border-2 transition-all ${
-                            remainMale > 0
-                              ? selectedGenderSeat === "남자" &&
-                                selectedDayInfo?.id === day.id
-                                ? "border-blue-600 bg-blue-600 text-white shadow-lg"
-                                : "border-blue-100 bg-blue-50/50 hover:bg-blue-100 cursor-pointer"
-                              : "border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed"
-                          }`}
-                        >
-                          <span
-                            className={`text-base font-bold mb-1 ${selectedGenderSeat === "남자" && selectedDayInfo?.id === day.id ? "text-blue-100" : remainMale > 0 ? "text-blue-600" : "text-gray-400"}`}
-                          >
-                            남자 잔여
-                          </span>
-                          <span
-                            className={`text-2xl md:text-3xl font-black ${selectedGenderSeat === "남자" && selectedDayInfo?.id === day.id ? "text-white" : remainMale > 0 ? "text-gray-900" : "text-gray-400"}`}
-                          >
-                            {remainMale > 0 ? `${remainMale}명` : "마감"}
-                          </span>
-                        </button>
+                        {/* 💡 카드 내용 여백(padding) 축소 */}
+                        {isExpanded && (
+                          <div className="px-4 pb-4 md:px-5 md:pb-5 animate-fade-in border-t border-gray-100 pt-4 md:pt-5">
+                            <div className="grid grid-cols-2 gap-3">
+                              <button
+                                onClick={() =>
+                                  remainMale > 0 && handleSeatClick(day, "남자")
+                                }
+                                className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
+                                  remainMale > 0
+                                    ? selectedGenderSeat === "남자" &&
+                                      selectedDayInfo?.id === day.id
+                                      ? "border-blue-600 bg-blue-600 text-white shadow-lg"
+                                      : "border-blue-100 bg-blue-50/50 hover:bg-blue-100 cursor-pointer"
+                                    : "border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed"
+                                }`}
+                              >
+                                <span
+                                  className={`text-sm font-bold mb-1 ${selectedGenderSeat === "남자" && selectedDayInfo?.id === day.id ? "text-blue-100" : remainMale > 0 ? "text-blue-600" : "text-gray-400"}`}
+                                >
+                                  남자 잔여
+                                </span>
+                                <span
+                                  className={`text-xl md:text-2xl font-black ${selectedGenderSeat === "남자" && selectedDayInfo?.id === day.id ? "text-white" : remainMale > 0 ? "text-gray-900" : "text-gray-400"}`}
+                                >
+                                  {remainMale > 0 ? `${remainMale}명` : "마감"}
+                                </span>
+                              </button>
 
-                        <button
-                          onClick={() =>
-                            remainFemale > 0 && handleSeatClick(day, "여자")
-                          }
-                          className={`flex flex-col items-center justify-center p-5 rounded-2xl border-2 transition-all ${
-                            remainFemale > 0
-                              ? selectedGenderSeat === "여자" &&
-                                selectedDayInfo?.id === day.id
-                                ? "border-red-600 bg-red-600 text-white shadow-lg"
-                                : "border-red-100 bg-red-50/50 hover:bg-red-100 cursor-pointer"
-                              : "border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed"
-                          }`}
-                        >
-                          <span
-                            className={`text-base font-bold mb-1 ${selectedGenderSeat === "여자" && selectedDayInfo?.id === day.id ? "text-red-100" : remainFemale > 0 ? "text-red-600" : "text-gray-400"}`}
-                          >
-                            여자 잔여
-                          </span>
-                          <span
-                            className={`text-2xl md:text-3xl font-black ${selectedGenderSeat === "여자" && selectedDayInfo?.id === day.id ? "text-white" : remainFemale > 0 ? "text-gray-900" : "text-gray-400"}`}
-                          >
-                            {remainFemale > 0 ? `${remainFemale}명` : "마감"}
-                          </span>
-                        </button>
+                              <button
+                                onClick={() =>
+                                  remainFemale > 0 &&
+                                  handleSeatClick(day, "여자")
+                                }
+                                className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
+                                  remainFemale > 0
+                                    ? selectedGenderSeat === "여자" &&
+                                      selectedDayInfo?.id === day.id
+                                      ? "border-red-600 bg-red-500 text-white shadow-lg"
+                                      : "border-red-100 bg-red-50/50 hover:bg-red-100 cursor-pointer"
+                                    : "border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed"
+                                }`}
+                              >
+                                <span
+                                  className={`text-sm font-bold mb-1 ${selectedGenderSeat === "여자" && selectedDayInfo?.id === day.id ? "text-red-100" : remainFemale > 0 ? "text-red-600" : "text-gray-400"}`}
+                                >
+                                  여자 잔여
+                                </span>
+                                <span
+                                  className={`text-xl md:text-2xl font-black ${selectedGenderSeat === "여자" && selectedDayInfo?.id === day.id ? "text-white" : remainFemale > 0 ? "text-gray-900" : "text-gray-400"}`}
+                                >
+                                  {remainFemale > 0
+                                    ? `${remainFemale}명`
+                                    : "마감"}
+                                </span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>
         </div>
 
         {/* ==========================================
-            우측: 예약 폼 영역 (스크롤 독립)
+            우측: 예약 폼 영역
         ========================================== */}
         <div
           className={`w-full md:w-[55%] flex flex-col bg-white ${selectedGenderSeat ? "flex" : "hidden md:flex"}`}
@@ -268,6 +342,7 @@ export default function Home() {
               >
                 <ChevronLeft size={24} /> 뒤로 가서 날짜 다시 선택하기
               </button>
+
               <div
                 className={`flex flex-col md:flex-row items-center justify-between p-6 rounded-2xl text-white font-black shadow-md ${gender === "남자" ? "bg-blue-600" : "bg-red-600"} gap-4 mb-8`}
               >
@@ -281,6 +356,7 @@ export default function Home() {
                   {gender}석 예약 진행 중
                 </div>
               </div>
+
               <form onSubmit={handleReservation} className="space-y-10 pb-10">
                 {/* 1. 개인정보 */}
                 <div className="bg-white p-6 md:p-8 rounded-3xl border-2 border-gray-100 shadow-sm space-y-6">
@@ -311,7 +387,7 @@ export default function Home() {
                         onChange={(e) => setUserCell(e.target.value)}
                         className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg outline-none focus:border-[#4A628A] bg-gray-50 focus:bg-white transition-all"
                         required
-                        placeholder="예: 1A16"
+                        placeholder="예: 청년 1셀"
                       />
                     </div>
                     <div className="space-y-2">
@@ -365,7 +441,7 @@ export default function Home() {
                   <h3 className="font-black text-[#4A628A] border-b-2 border-gray-100 pb-4 text-xl md:text-2xl">
                     2. 소조 사역 안내 및 동의
                   </h3>
-                  <ul className="text-base md:text-lg text-gray-700 space-y-4 bg-gray-50 p-6 rounded-2xl leading-loose font-medium border border-gray-200">
+                  <ul className="text-lg md:text-xl text-gray-700 space-y-4 bg-gray-50 p-6 rounded-2xl leading-loose font-medium border border-gray-200">
                     <li className="flex gap-2 items-start">
                       <span className="text-[#4A628A] font-bold mt-1">•</span>{" "}
                       <span>소조 세션은 90분입니다.</span>
@@ -385,7 +461,9 @@ export default function Home() {
                           신청하시는 분 성함으로 입금하여 주시기 바랍니다.
                         </span>{" "}
                         신청 후에는 환불되지 않습니다. <br />
-                        (국민은행 920301-01-728406 하나교회)
+                        <span className="font-bold">
+                          국민은행 920301-01-728406 (하나교회)
+                        </span>
                       </span>
                     </li>
                     <li className="flex gap-2 items-start">
@@ -490,15 +568,14 @@ export default function Home() {
               </form>
             </div>
           ) : (
-            // PC 화면 빈 상태 플레이스홀더
             <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 text-gray-300">
               <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-6 shadow-inner">
                 <span className="text-5xl">📅</span>
               </div>
               <p className="text-xl font-bold text-gray-400">
-                좌측 리스트에서 원하시는 날짜의
+                좌측 리스트에서 원하시는 날짜를 클릭하여
                 <br />
-                좌석 버튼을 클릭해 주세요.
+                예약을 진행해 주세요.
               </p>
             </div>
           )}
