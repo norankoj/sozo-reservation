@@ -226,7 +226,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-start md:items-center justify-center p-0 md:p-6 lg:p-10 font-sans">
+    <div className="min-h-screen bg-gray-100 text-gray-900 flex items-start md:items-center justify-center p-0 md:p-6 lg:p-10 font-sans">
       <div className="max-w-6xl w-full bg-white md:rounded-3xl shadow-2xl md:overflow-hidden flex flex-col md:flex-row min-h-[100dvh] md:min-h-0 md:h-[850px] border-none md:border border-gray-100">
         {/* ==========================================
             좌측: 날짜 리스트 영역
