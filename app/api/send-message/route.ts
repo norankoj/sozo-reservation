@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     const result = await messageService.sendOne({
       to: userPhone, // 폼에서 입력받은 수신자 번호
       from: process.env.SOLAPI_SENDER_PHONE as string, // 솔라피에 등록된 발신자 번호
-      text: `[SOZO 예약 완료]\n${userName}님, ${targetDate} ${sessionTime} 예약이 확정되었습니다.\n감사합니다!`, // 발송할 메시지 내용
+      text: `[SOZO 예약 완료]\n${userName}님, ${targetDate} ${sessionTime} 예약이 확정되었습니다.\n안내된 계좌로 입금 부탁드립니다. (국민은행 920301-01-728406 (하나교회))`,
 
       // 카카오톡 알림톡
       /*
