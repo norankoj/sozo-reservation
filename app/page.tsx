@@ -93,10 +93,42 @@ export default function Home() {
     resetForm();
   };
 
-  const handleSeatClick = (dayInfo: any, selectedGender: string) => {
+  const handleSeatClick = async (dayInfo: any, selectedGender: string) => {
+    setIsLoading(true);
+
+    const maxSeat =
+      selectedGender === "남자" ? dayInfo.max_male : dayInfo.max_female;
+
+    const { data: currentReservations, error: checkError } = await supabase
+      .from("sozo_reservations")
+      .select("id")
+      .eq("target_date", dayInfo.target_date)
+      .eq("gender", selectedGender);
+
+    if (checkError) {
+      alert("좌석 상태를 확인하는 중 오류가 발생했습니다.");
+      setIsLoading(false);
+      return;
+    }
+
+    if (currentReservations && currentReservations.length >= maxSeat) {
+      alert(
+        "죄송합니다. 방금 다른 분께서 예약을 완료하셔서 해당 예약이 마감되었습니다. \n다른 예약일정을 선택해 주시기 바랍니다.",
+      );
+
+      const { data: resData } = await supabase
+        .from("sozo_reservations")
+        .select("*");
+      if (resData) setReservations(resData);
+
+      setIsLoading(false);
+      return;
+    }
+
     setSelectedDayInfo(dayInfo);
     setSelectedGenderSeat(selectedGender);
     setGender(selectedGender);
+    setIsLoading(false);
   };
 
   const handleReservation = async (e: React.FormEvent) => {
@@ -106,6 +138,29 @@ export default function Home() {
       return alert("소조사역 내용에 동의하셔야 예약이 가능합니다.");
 
     setIsLoading(true);
+
+    const maxSeat =
+      gender === "남자" ? selectedDayInfo.max_male : selectedDayInfo.max_female;
+    const { data: finalCheck, error: finalError } = await supabase
+      .from("sozo_reservations")
+      .select("id")
+      .eq("target_date", selectedDayInfo.target_date)
+      .eq("gender", gender);
+
+    if (!finalError && finalCheck && finalCheck.length >= maxSeat) {
+      alert(
+        "죄송합니다. 방금 다른 분께서 예약을 완료하셔서 해당 예약이 마감되었습니다. \n다른 예약일정을 선택해 주시기 바랍니다.",
+      );
+      const { data: resData } = await supabase
+        .from("sozo_reservations")
+        .select("*");
+      if (resData) setReservations(resData);
+      handleBack();
+      setIsLoading(false);
+      return;
+    }
+
+    // 찐 예약 진행
     const { error } = await supabase.from("sozo_reservations").insert([
       {
         target_date: selectedDayInfo.target_date,
@@ -136,10 +191,11 @@ export default function Home() {
         });
       } catch (smsError) {
         console.error("문자 발송 실패:", smsError);
-        // 메시지 발송에 실패하더라도 예약 DB 저장은 성공한 것이므로 다음 단계로 넘어감
       }
 
-      alert("예약이 성공적으로 완료되었습니다!");
+      alert(
+        "예약이 성공적으로 완료되었습니다!\n곧 문자로 안내가 발송될 예정입니다. 감사합니다.",
+      );
       const { data: resData } = await supabase
         .from("sozo_reservations")
         .select("*");
@@ -190,7 +246,7 @@ export default function Home() {
           <div className="flex-1 md:overflow-y-auto p-4 md:p-6 space-y-4">
             {isLoading ? (
               <div className="text-center py-20 text-gray-400 text-lg font-bold">
-                일정을 불러오는 중입니다...
+                잠시만 기다려주세요...
               </div>
             ) : availabilities.length === 0 ? (
               <div className="bg-white text-red-600 p-8 rounded-2xl text-center text-lg font-bold border-2 border-red-100 shadow-sm">
@@ -209,7 +265,6 @@ export default function Home() {
                   </button>
                 </div>
 
-                {/* 💡 아코디언 여백(gap) 축소: space-y-4 -> space-y-3 */}
                 <div className="space-y-3">
                   {availabilities.map((day) => {
                     const dateObj = parseISO(day.target_date);
@@ -227,7 +282,6 @@ export default function Home() {
                         key={day.id}
                         className="bg-white border-2 border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden"
                       >
-                        {/* 💡 카드 헤더 여백(padding) 축소: p-6 -> p-4 md:p-5 */}
                         <div
                           onClick={() => toggleDate(day.id)}
                           className="flex items-center justify-between p-4 md:p-5 cursor-pointer hover:bg-gray-50 transition-colors"
@@ -259,7 +313,6 @@ export default function Home() {
                           </div>
                         </div>
 
-                        {/* 💡 카드 내용 여백(padding) 축소 */}
                         {isExpanded && (
                           <div className="px-4 pb-4 md:px-5 md:pb-5 animate-fade-in border-t border-gray-100 pt-4 md:pt-5">
                             <div className="grid grid-cols-2 gap-3">
@@ -267,6 +320,7 @@ export default function Home() {
                                 onClick={() =>
                                   remainMale > 0 && handleSeatClick(day, "남자")
                                 }
+                                disabled={remainMale <= 0 || isLoading}
                                 className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
                                   remainMale > 0
                                     ? selectedGenderSeat === "남자" &&
@@ -293,6 +347,7 @@ export default function Home() {
                                   remainFemale > 0 &&
                                   handleSeatClick(day, "여자")
                                 }
+                                disabled={remainFemale <= 0 || isLoading}
                                 className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
                                   remainFemale > 0
                                     ? selectedGenderSeat === "여자" &&
