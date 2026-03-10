@@ -13,11 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "수원 하나교회 SOZO 예약",
+  title: "SOZO 예약",
   description:
-    "수원 하나교회 SOZO 사역 예약 페이지입니다. 원하시는 날짜를 선택하여 예약을 진행해 주세요.",
+    "SOZO 사역 예약 페이지입니다. 원하시는 날짜를 선택하여 예약을 진행해 주세요.",
   openGraph: {
-    title: "수원 하나교회 SOZO 예약",
+    title: "SOZO 예약",
     description: "원하시는 날짜를 선택하여 예약을 진행해 주세요.",
     siteName: "SOZO 예약 시스템",
     locale: "ko_KR",
