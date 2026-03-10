@@ -138,7 +138,7 @@ export default function AdminDashboard() {
 
                     {/* 사전 질문 내용 */}
                     <td className="px-6 py-4 align-top max-w-xs">
-                      <div className="space-y-2 text-xs">
+                      <div className="space-y-2 text-xs text-gray-700">
                         {res.expectations && (
                           <div className="bg-blue-50 p-2 rounded border border-blue-100">
                             <span className="font-bold text-blue-700 mr-1">
