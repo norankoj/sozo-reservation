@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { format, parseISO, getDay } from "date-fns";
 import { supabase } from "@/lib/supabase";
+import { formatPhone } from "@/lib/phone";
 import {
   ChevronLeft,
   UserCircle2,
@@ -15,7 +16,8 @@ import {
 
 export default function Home() {
   const [availabilities, setAvailabilities] = useState<any[]>([]);
-  const [reservations, setReservations] = useState<any[]>([]);
+  // 예약자 명단이 아니라 "날짜/성별별 예약 수" 만 받아옵니다.
+  const [seats, setSeats] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const [selectedDayInfo, setSelectedDayInfo] = useState<any>(null);
@@ -36,6 +38,14 @@ export default function Home() {
 
   const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
+  // 최신 잔여석을 받아오고, 방금 받은 값을 그대로 돌려준다.
+  const fetchSeats = async () => {
+    const { data } = await supabase.rpc("sozo_seat_counts");
+    const rows = data ?? [];
+    setSeats(rows);
+    return rows;
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
@@ -47,35 +57,26 @@ export default function Home() {
 
       if (availData) setAvailabilities(availData);
 
-      const { data: resData } = await supabase
-        .from("sozo_reservations")
-        .select("*");
-
-      if (resData) setReservations(resData);
+      await fetchSeats();
       setIsLoading(false);
     };
     fetchData();
   }, []);
 
+  const takenSeats = (rows: any[], targetDate: string, g: string) =>
+    Number(
+      rows.find((s) => s.target_date === targetDate && s.gender === g)?.taken ??
+        0,
+    );
+
   const getRemainingSeats = (
     targetDate: string,
     maxMale: number,
     maxFemale: number,
-  ) => {
-    const dayReservations = reservations.filter(
-      (r) => r.target_date === targetDate,
-    );
-    const bookedMale = dayReservations.filter(
-      (r) => r.gender === "남자",
-    ).length;
-    const bookedFemale = dayReservations.filter(
-      (r) => r.gender === "여자",
-    ).length;
-    return {
-      remainMale: maxMale - bookedMale,
-      remainFemale: maxFemale - bookedFemale,
-    };
-  };
+  ) => ({
+    remainMale: maxMale - takenSeats(seats, targetDate, "남자"),
+    remainFemale: maxFemale - takenSeats(seats, targetDate, "여자"),
+  });
 
   const resetForm = () => {
     setUserName("");
@@ -93,34 +94,20 @@ export default function Home() {
     resetForm();
   };
 
+  const FULL_MESSAGE =
+    "죄송합니다. 방금 다른 분께서 예약을 완료하셔서 해당 예약이 마감되었습니다. \n다른 예약일정을 선택해 주시기 바랍니다.";
+
   const handleSeatClick = async (dayInfo: any, selectedGender: string) => {
     setIsLoading(true);
 
     const maxSeat =
       selectedGender === "남자" ? dayInfo.max_male : dayInfo.max_female;
 
-    const { data: currentReservations, error: checkError } = await supabase
-      .from("sozo_reservations")
-      .select("id")
-      .eq("target_date", dayInfo.target_date)
-      .eq("gender", selectedGender);
+    // 화면이 오래됐을 수 있으니 눌린 시점의 잔여석을 다시 확인 (최종 판정은 DB가 함)
+    const fresh = await fetchSeats();
 
-    if (checkError) {
-      alert("좌석 상태를 확인하는 중 오류가 발생했습니다.");
-      setIsLoading(false);
-      return;
-    }
-
-    if (currentReservations && currentReservations.length >= maxSeat) {
-      alert(
-        "죄송합니다. 방금 다른 분께서 예약을 완료하셔서 해당 예약이 마감되었습니다. \n다른 예약일정을 선택해 주시기 바랍니다.",
-      );
-
-      const { data: resData } = await supabase
-        .from("sozo_reservations")
-        .select("*");
-      if (resData) setReservations(resData);
-
+    if (takenSeats(fresh, dayInfo.target_date, selectedGender) >= maxSeat) {
+      alert(FULL_MESSAGE);
       setIsLoading(false);
       return;
     }
@@ -139,71 +126,54 @@ export default function Home() {
 
     setIsLoading(true);
 
-    const maxSeat =
-      gender === "남자" ? selectedDayInfo.max_male : selectedDayInfo.max_female;
-    const { data: finalCheck, error: finalError } = await supabase
-      .from("sozo_reservations")
-      .select("id")
-      .eq("target_date", selectedDayInfo.target_date)
-      .eq("gender", gender);
+    // 정원 확인과 등록을 DB 안에서 한 번에 처리하므로 동시 신청에도 초과되지 않습니다.
+    const { error } = await supabase.rpc("reserve_sozo", {
+      p_target_date: selectedDayInfo.target_date,
+      p_user_name: userName,
+      p_user_phone: userPhone,
+      p_gender: gender,
+      p_cell: userCell,
+      p_age: userAge,
+      p_expectations: expectations,
+      p_questions: questions,
+    });
 
-    if (!finalError && finalCheck && finalCheck.length >= maxSeat) {
-      alert(
-        "죄송합니다. 방금 다른 분께서 예약을 완료하셔서 해당 예약이 마감되었습니다. \n다른 예약일정을 선택해 주시기 바랍니다.",
-      );
-      const { data: resData } = await supabase
-        .from("sozo_reservations")
-        .select("*");
-      if (resData) setReservations(resData);
-      handleBack();
+    if (error) {
+      await fetchSeats();
+      if (error.message.includes("FULL")) {
+        alert(FULL_MESSAGE);
+        handleBack();
+      } else if (error.message.includes("CLOSED")) {
+        alert("현재 예약을 받고 있지 않은 일정입니다.");
+        handleBack();
+      } else {
+        alert("예약 중 오류가 발생했습니다.");
+      }
       setIsLoading(false);
       return;
     }
 
-    // 찐 예약 진행
-    const { error } = await supabase.from("sozo_reservations").insert([
-      {
-        target_date: selectedDayInfo.target_date,
-        user_name: userName,
-        user_phone: userPhone,
-        gender: gender,
-        cell: userCell,
-        age: userAge,
-        expectations: expectations,
-        questions: questions,
-      },
-    ]);
-
-    if (error) {
-      alert("예약 중 오류가 발생했습니다.");
-      setIsLoading(false);
-    } else {
-      try {
-        await fetch("/api/send-message", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userName: userName,
-            userPhone: userPhone,
-            targetDate: selectedDayInfo.target_date,
-            sessionTime: selectedDayInfo.session_time || "오전 10시",
-          }),
-        });
-      } catch (smsError) {
-        console.error("문자 발송 실패:", smsError);
-      }
-
-      alert(
-        "예약이 성공적으로 완료되었습니다!\n곧 문자로 안내가 발송될 예정입니다. 감사합니다.",
-      );
-      const { data: resData } = await supabase
-        .from("sozo_reservations")
-        .select("*");
-      if (resData) setReservations(resData);
-
-      handleBack();
-      setIsLoading(false);
+    try {
+      await fetch("/api/send-message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userName: userName,
+          userPhone: userPhone,
+          targetDate: selectedDayInfo.target_date,
+          sessionTime: selectedDayInfo.session_time || "오전 10시",
+        }),
+      });
+    } catch (smsError) {
+      console.error("문자 발송 실패:", smsError);
     }
+
+    alert(
+      "예약이 성공적으로 완료되었습니다!\n곧 문자로 안내가 발송될 예정입니다. 감사합니다.",
+    );
+    await fetchSeats();
+    handleBack();
+    setIsLoading(false);
   };
 
   const toggleDate = (id: string) => {
@@ -466,15 +436,14 @@ export default function Home() {
                         type="tel"
                         value={userPhone}
                         maxLength={13}
-                        onChange={(e) =>
-                          setUserPhone(e.target.value.replace(/[^0-9-]/g, ""))
-                        }
+                        onChange={(e) => setUserPhone(formatPhone(e.target.value))}
                         className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg outline-none focus:border-[#4A628A] bg-gray-50 focus:bg-white transition-all"
                         required
                         placeholder="010-1234-5678"
                       />
                       <p className="text-sm md:text-base text-gray-500 font-medium ml-1 mt-2">
                         * 안내 문자를 받을 수 있는 번호를 정확히 적어주세요.
+                        <br />* 숫자만 누르셔도 - 이 자동으로 들어갑니다.
                       </p>
                     </div>
                   </div>

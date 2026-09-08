@@ -17,6 +17,7 @@ import {
 export default function AdminSettings() {
   const [availabilities, setAvailabilities] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
   // 현재 수정 중인 행의 ID ('new'는 새로 추가 중인 행)
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -117,6 +118,8 @@ export default function AdminSettings() {
   };
 
   // 저장 (추가 또는 수정)
+  // 저장된 행을 그대로 돌려받아 화면에 반영합니다. 전체 목록을 다시 불러오지 않아
+  // 왕복이 한 번으로 줄고, 목록이 깜빡이지 않습니다.
   const handleSave = async () => {
     if (!editForm.target_date) return alert("예약 날짜를 선택해 주세요.");
     if (!editForm.session_time) return alert("시간을 입력해 주세요.");
@@ -129,36 +132,67 @@ export default function AdminSettings() {
       is_open: editForm.is_open,
     };
 
+    setIsSaving(true);
+
     if (editingId === "new") {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("sozo_availability")
-        .insert([payload]);
+        .insert([payload])
+        .select()
+        .single();
+      setIsSaving(false);
+
       if (error) {
         if (error.code === "23505")
           return alert("이미 설정된 날짜입니다. 기존 목록에서 수정해 주세요.");
         return alert("저장 중 오류가 발생했습니다.");
       }
+      setAvailabilities((prev) => [...prev, data]);
     } else {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("sozo_availability")
         .update(payload)
-        .eq("id", editingId);
+        .eq("id", editingId)
+        .select()
+        .single();
+      setIsSaving(false);
+
       if (error) return alert("수정 중 오류가 발생했습니다.");
+      setAvailabilities((prev) =>
+        prev.map((a) => (a.id === data.id ? data : a)),
+      );
     }
 
     setEditingId(null);
-    fetchAllAvailabilities();
   };
 
   // 삭제
   const handleDelete = async (id: string, date: string) => {
+    // 신청자가 있는 일정은 DB가 삭제를 막습니다(예약 기록이 함께 사라지므로).
+    // 그냥 실패시키지 말고 왜 안 되는지, 대신 뭘 하면 되는지 알려줍니다.
+    const { count } = await supabase
+      .from("sozo_reservations")
+      .select("id", { count: "exact", head: true })
+      .eq("target_date", date);
+
+    if (count) {
+      return alert(
+        `${date} 일정에는 이미 ${count}명이 신청했습니다.\n` +
+          `신청 기록이 사라지지 않도록 일정을 삭제할 수 없습니다.\n\n` +
+          `· 더 이상 신청을 받지 않으시려면 '수정'에서 상태를 '마감(닫힘)'으로 바꿔 주세요.\n` +
+          `· 정말 지우시려면 대시보드에서 해당 예약을 먼저 취소한 뒤 완전 삭제해 주세요.`,
+      );
+    }
+
     if (!confirm(`${date} 일정을 정말 삭제하시겠습니까?`)) return;
+
     const { error } = await supabase
       .from("sozo_availability")
       .delete()
       .eq("id", id);
-    if (error) alert("삭제 중 오류가 발생했습니다.");
-    else fetchAllAvailabilities();
+
+    if (error) alert(`삭제 중 오류가 발생했습니다.\n(${error.message})`);
+    else setAvailabilities((prev) => prev.filter((a) => a.id !== id));
   };
 
   // 입력값 변경 핸들러
@@ -318,9 +352,10 @@ export default function AdminSettings() {
               </button>
               <button
                 onClick={handleSave}
-                className="flex-1 bg-[#4A628A] text-white py-3.5 rounded-xl font-black active:scale-95 transition"
+                disabled={isSaving}
+                className="flex-1 bg-[#4A628A] text-white py-3.5 rounded-xl font-black active:scale-95 transition disabled:opacity-60"
               >
-                저장 완료
+                {isSaving ? "저장 중..." : "저장 완료"}
               </button>
             </div>
           </div>
@@ -412,9 +447,10 @@ export default function AdminSettings() {
                     </button>
                     <button
                       onClick={handleSave}
-                      className="flex-1 bg-[#4A628A] text-white py-3.5 rounded-xl font-black active:scale-95 transition"
+                      disabled={isSaving}
+                      className="flex-1 bg-[#4A628A] text-white py-3.5 rounded-xl font-black active:scale-95 transition disabled:opacity-60"
                     >
-                      저장 완료
+                      {isSaving ? "저장 중..." : "저장 완료"}
                     </button>
                   </div>
                 </div>
@@ -573,9 +609,10 @@ export default function AdminSettings() {
                     <div className="flex justify-center gap-2">
                       <button
                         onClick={handleSave}
-                        className="flex items-center gap-1 bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition font-bold text-xs"
+                        disabled={isSaving}
+                        className="flex items-center gap-1 bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition font-bold text-xs disabled:opacity-60"
                       >
-                        <Save size={16} /> 저장
+                        <Save size={16} /> {isSaving ? "저장 중" : "저장"}
                       </button>
                       <button
                         onClick={() => setEditingId(null)}
@@ -661,9 +698,10 @@ export default function AdminSettings() {
                         <div className="flex justify-center gap-2">
                           <button
                             onClick={handleSave}
-                            className="flex items-center gap-1 bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition font-bold text-xs"
+                            disabled={isSaving}
+                            className="flex items-center gap-1 bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition font-bold text-xs disabled:opacity-60"
                           >
-                            <Save size={16} /> 저장
+                            <Save size={16} /> {isSaving ? "저장 중" : "저장"}
                           </button>
                           <button
                             onClick={() => setEditingId(null)}
