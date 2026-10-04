@@ -24,12 +24,12 @@ export default function AdminLogin() {
   };
 
   return (
-    <div className="min-h-screen bg-[#4A628A] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-brand flex items-center justify-center p-4">
       <form
         onSubmit={handleLogin}
         className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md"
       >
-        <h1 className="text-2xl font-bold text-[#4A628A] mb-6 text-center">
+        <h1 className="text-2xl font-bold text-brand mb-6 text-center">
           SOZO 관리자 로그인
         </h1>
         <div className="space-y-4">
@@ -38,7 +38,7 @@ export default function AdminLogin() {
             placeholder="이메일"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full border rounded-lg p-3 outline-none focus:ring-2 focus:ring-[#4A628A]"
+            className="w-full border rounded-lg p-3 outline-none focus:ring-2 focus:ring-brand"
             required
           />
           <input
@@ -46,12 +46,12 @@ export default function AdminLogin() {
             placeholder="비밀번호"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full border rounded-lg p-3 outline-none focus:ring-2 focus:ring-[#4A628A]"
+            className="w-full border rounded-lg p-3 outline-none focus:ring-2 focus:ring-brand"
             required
           />
           <button
             type="submit"
-            className="w-full bg-[#4A628A] text-white font-bold py-3 rounded-lg hover:bg-[#3A4D6D] transition"
+            className="w-full bg-brand text-white font-bold py-3 rounded-lg hover:bg-brand-dark transition"
           >
             로그인
           </button>

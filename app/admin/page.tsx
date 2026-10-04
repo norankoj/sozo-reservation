@@ -16,6 +16,7 @@ import {
   RotateCcw,
   Trash2,
   X,
+  Download,
 } from "lucide-react";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -156,6 +157,39 @@ export default function AdminDashboard() {
     else setReservations((prev) => prev.filter((r) => r.id !== res.id));
   };
 
+  // 보고 있는 탭의 명단을 엑셀에서 바로 열리는 CSV 로 내려받기
+  const downloadCsv = () => {
+    const rows = tab === "past" ? past : current;
+    const head = ["날짜", "시간", "성별", "이름", "연락처", "소속셀", "나이", "상태", "신청시각", "기대", "궁금"];
+    const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const lines = rows.map((r) =>
+      [
+        r.target_date,
+        sessionTimeOf(r.target_date),
+        r.gender,
+        r.user_name,
+        r.user_phone,
+        r.cell,
+        r.age,
+        isCancelled(r) ? "취소" : "확정",
+        r.created_at ? format(new Date(r.created_at), "yyyy-MM-dd HH:mm") : "",
+        r.expectations,
+        r.questions,
+      ]
+        .map(cell)
+        .join(","),
+    );
+    // 앞의 ﻿ 가 있어야 엑셀에서 한글이 깨지지 않습니다.
+    const blob = new Blob(["﻿" + [head.join(","), ...lines].join("\n")], {
+      type: "text/csv;charset=utf-8",
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `소조예약_${tab === "past" ? "지난기록" : "진행중"}_${today}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
   // 오늘 이전 날짜의 예약은 '지난 기록'으로 분리
   const today = format(new Date(), "yyyy-MM-dd");
   const past = reservations.filter((r) => r.target_date < today);
@@ -168,10 +202,10 @@ export default function AdminDashboard() {
     const full = max !== undefined && taken >= max;
     return (
       <div
-        className={`px-3.5 py-2 rounded-xl border-2 font-black text-sm flex items-center gap-2 ${
+        className={`px-3.5 py-2 rounded-xl border-2 font-bold text-sm flex items-center gap-2 ${
           label === "남자"
-            ? "border-blue-100 bg-blue-50 text-blue-700"
-            : "border-red-100 bg-red-50 text-red-600"
+            ? "border-male/20 bg-male/5 text-male"
+            : "border-female/20 bg-female/5 text-female"
         }`}
       >
         {label}
@@ -193,7 +227,7 @@ export default function AdminDashboard() {
         onClick={() => openSms(res)}
         disabled={busyId === res.id}
         title="예약 안내 문자 발송"
-        className="p-2.5 rounded-xl bg-blue-50 text-[#4A628A] hover:bg-[#4A628A] hover:text-white transition disabled:opacity-40"
+        className="p-2.5 rounded-xl bg-brand/10 text-brand hover:bg-brand hover:text-white transition disabled:opacity-40"
       >
         <Send size={16} />
       </button>
@@ -232,14 +266,14 @@ export default function AdminDashboard() {
   const renderNotes = (res: any) => (
     <div className="space-y-2 text-xs md:text-sm text-gray-700 max-h-40 overflow-y-auto pr-1">
       {res.expectations && (
-        <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 leading-relaxed">
-          <span className="font-black text-blue-700 mr-1.5">[기대]</span>
+        <div className="bg-brand/5 p-3 rounded-xl border border-brand/20 leading-relaxed">
+          <span className="font-bold text-brand mr-1.5">[기대]</span>
           {res.expectations}
         </div>
       )}
       {res.questions && (
         <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 leading-relaxed">
-          <span className="font-black text-gray-600 mr-1.5">[궁금]</span>
+          <span className="font-bold text-gray-600 mr-1.5">[궁금]</span>
           {res.questions}
         </div>
       )}
@@ -254,17 +288,22 @@ export default function AdminDashboard() {
   const renderBadges = (res: any) => (
     <div className="flex items-center gap-2 flex-wrap">
       <span
-        className={`px-2.5 py-1 rounded-full text-[11px] font-black ${
+        className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
           res.gender === "남자"
-            ? "bg-blue-100 text-blue-700"
-            : "bg-red-100 text-red-700"
+            ? "bg-male/10 text-male"
+            : "bg-female/10 text-female"
         }`}
       >
         {res.gender}
       </span>
       {isCancelled(res) && (
-        <span className="px-2.5 py-1 rounded-full text-[11px] font-black bg-gray-800 text-white">
+        <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-gray-800 text-white">
           취소됨
+        </span>
+      )}
+      {res.created_at && (
+        <span className="text-[11px] font-bold text-gray-400">
+          {format(new Date(res.created_at), "M/d HH:mm")} 신청
         </span>
       )}
     </div>
@@ -285,8 +324,8 @@ export default function AdminDashboard() {
             className="bg-white w-full md:max-w-lg rounded-t-3xl md:rounded-2xl shadow-2xl overflow-hidden animate-fade-in"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 bg-[#4A628A] text-white">
-              <h3 className="font-black text-lg flex items-center gap-2">
+            <div className="flex items-center justify-between px-5 py-4 bg-brand text-white">
+              <h3 className="font-bold text-lg flex items-center gap-2">
                 <Send size={18} /> 예약 안내 문자 발송
               </h3>
               <button
@@ -300,10 +339,10 @@ export default function AdminDashboard() {
 
             <div className="p-5 space-y-4">
               <div className="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
-                <span className="text-xs font-black text-gray-400 shrink-0">
+                <span className="text-xs font-bold text-gray-400 shrink-0">
                   받는 사람
                 </span>
-                <span className="font-black text-gray-800">
+                <span className="font-bold text-gray-800">
                   {smsTarget.user_name}
                 </span>
                 <span className="text-gray-500 font-medium">
@@ -313,11 +352,11 @@ export default function AdminDashboard() {
 
               <div>
                 <div className="flex justify-between items-end mb-1.5">
-                  <label className="text-sm font-black text-gray-600">
+                  <label className="text-sm font-bold text-gray-600">
                     보낼 내용
                   </label>
                   <span
-                    className={`text-xs font-black ${isLms ? "text-amber-600" : "text-gray-400"}`}
+                    className={`text-xs font-bold ${isLms ? "text-amber-600" : "text-gray-400"}`}
                   >
                     {bytes}바이트 · {isLms ? "장문(LMS)" : "단문(SMS)"}
                   </span>
@@ -326,7 +365,7 @@ export default function AdminDashboard() {
                   value={smsText}
                   onChange={(e) => setSmsText(e.target.value)}
                   rows={7}
-                  className="w-full border-2 border-gray-200 rounded-xl p-4 text-sm leading-relaxed text-gray-800 outline-none focus:border-[#4A628A] resize-none"
+                  className="w-full border-2 border-gray-200 rounded-xl p-4 text-sm leading-relaxed text-gray-800 outline-none focus:border-brand resize-none"
                 />
                 <p className="text-xs text-gray-400 mt-1.5">
                   90바이트(한글 45자)를 넘으면 장문으로 발송됩니다.
@@ -345,7 +384,7 @@ export default function AdminDashboard() {
               <button
                 onClick={sendSms}
                 disabled={sending}
-                className="flex-1 bg-[#4A628A] text-white py-3.5 rounded-xl font-black hover:bg-[#3A4D6D] transition disabled:opacity-50"
+                className="flex-1 bg-brand text-white py-3.5 rounded-xl font-bold hover:bg-brand-dark transition disabled:opacity-50"
               >
                 {sending ? "발송 중..." : "발송하기"}
               </button>
@@ -358,16 +397,16 @@ export default function AdminDashboard() {
         <div className="flex gap-2">
           {(
             [
-              ["current", `📊 진행 중 예약 (${current.length})`],
-              ["past", `🗂️ 지난 기록 (${past.length})`],
+              ["current", `진행 중 예약 (${current.length})`],
+              ["past", `지난 기록 (${past.length})`],
             ] as const
           ).map(([key, label]) => (
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`px-4 py-2.5 rounded-xl text-sm md:text-base font-black transition ${
+              className={`px-4 py-2.5 rounded-xl text-sm md:text-base font-bold transition ${
                 tab === key
-                  ? "bg-[#4A628A] text-white shadow-md"
+                  ? "bg-brand text-white shadow-md"
                   : "bg-gray-100 text-gray-500 hover:bg-gray-200"
               }`}
             >
@@ -375,12 +414,21 @@ export default function AdminDashboard() {
             </button>
           ))}
         </div>
-        <button
-          onClick={fetchAll}
-          className="bg-gray-100 text-gray-700 px-4 py-2 md:px-5 md:py-2.5 rounded-xl text-sm md:text-base font-bold hover:bg-gray-200 transition active:scale-95"
-        >
-          새로고침
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={downloadCsv}
+            disabled={loading}
+            className="flex items-center gap-1.5 bg-gray-100 text-gray-700 px-4 py-2 md:px-5 md:py-2.5 rounded-xl text-sm md:text-base font-bold hover:bg-gray-200 transition active:scale-95 disabled:opacity-50"
+          >
+            <Download size={16} /> 엑셀 다운로드
+          </button>
+          <button
+            onClick={fetchAll}
+            className="bg-gray-100 text-gray-700 px-4 py-2 md:px-5 md:py-2.5 rounded-xl text-sm md:text-base font-bold hover:bg-gray-200 transition active:scale-95"
+          >
+            새로고침
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -407,11 +455,11 @@ export default function AdminDashboard() {
                 {/* 날짜 헤더 + 정원 현황 */}
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-5 border-b border-gray-100 bg-gray-50/70">
                   <div className="flex items-center gap-3">
-                    <div className="bg-white p-2.5 rounded-full text-[#4A628A] shadow-sm">
+                    <div className="bg-white p-2.5 rounded-full text-brand shadow-sm">
                       <CalendarDays size={20} />
                     </div>
                     <div>
-                      <h2 className="font-black text-gray-800 text-lg">
+                      <h2 className="font-bold text-gray-800 text-lg">
                         {format(dateObj, "yyyy년 MM월 dd일")}{" "}
                         <span className="text-gray-400">
                           ({WEEKDAYS[getDay(dateObj)]})
@@ -453,20 +501,22 @@ export default function AdminDashboard() {
                           <p className="text-[11px] font-bold text-gray-400 mb-1">
                             예약자
                           </p>
-                          <p className="font-black text-gray-800 flex items-center gap-1.5">
+                          <p className="font-bold text-gray-800 flex items-center gap-1.5">
                             <User size={14} className="text-gray-400" />{" "}
                             {res.user_name}
                           </p>
                           <p className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5">
                             <Phone size={14} className="text-gray-400" />{" "}
-                            {res.user_phone}
+                            <a href={`tel:${res.user_phone}`} className="hover:underline">
+                              {res.user_phone}
+                            </a>
                           </p>
                         </div>
                         <div>
                           <p className="text-[11px] font-bold text-gray-400 mb-1">
                             소속 / 나이
                           </p>
-                          <p className="font-black text-gray-800 flex items-center gap-1.5">
+                          <p className="font-bold text-gray-800 flex items-center gap-1.5">
                             <Users size={14} className="text-gray-400" />{" "}
                             {res.cell}
                           </p>
@@ -486,16 +536,16 @@ export default function AdminDashboard() {
                   <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
                     <thead className="bg-white border-b border-gray-200">
                       <tr>
-                        <th className="px-6 py-4 font-black text-gray-700 w-56">
+                        <th className="px-6 py-4 font-bold text-gray-700 w-56">
                           예약자 정보
                         </th>
-                        <th className="px-6 py-4 font-black text-gray-700 w-36">
+                        <th className="px-6 py-4 font-bold text-gray-700 w-36">
                           소속 / 나이
                         </th>
-                        <th className="px-6 py-4 font-black text-gray-700">
+                        <th className="px-6 py-4 font-bold text-gray-700">
                           사전 질문 및 기대사항
                         </th>
-                        <th className="px-6 py-4 font-black text-gray-700 text-center w-32">
+                        <th className="px-6 py-4 font-bold text-gray-700 text-center w-32">
                           관리
                         </th>
                       </tr>
@@ -510,13 +560,15 @@ export default function AdminDashboard() {
                         >
                           <td className="px-6 py-4 align-top">
                             <div className="mb-2">{renderBadges(res)}</div>
-                            <div className="flex items-center gap-1.5 font-black text-gray-800 mb-1 text-base">
+                            <div className="flex items-center gap-1.5 font-bold text-gray-800 mb-1 text-base">
                               <User size={16} className="text-gray-400" />{" "}
                               {res.user_name}
                             </div>
                             <div className="flex items-center gap-1.5 text-gray-500 text-sm font-medium">
                               <Phone size={14} className="text-gray-400" />{" "}
+                              <a href={`tel:${res.user_phone}`} className="hover:underline">
                               {res.user_phone}
+                            </a>
                             </div>
                           </td>
 

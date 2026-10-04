@@ -1,18 +1,33 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { format, parseISO, getDay } from "date-fns";
 import { supabase } from "@/lib/supabase";
 import { formatPhone } from "@/lib/phone";
-import {
-  ChevronLeft,
-  UserCircle2,
-  CalendarDays,
-  Clock,
-  ChevronDown,
-  ChevronUp,
-  ChevronsUpDown,
-} from "lucide-react";
+import { BANK_ACCOUNT } from "@/lib/message";
+import { ChevronLeft, CalendarDays, Clock, Copy, CheckCircle2 } from "lucide-react";
+
+// Tailwind 가 클래스를 찾을 수 있도록 전체 이름으로 적어 둡니다.
+// 강조색은 brand 하나만. 성별 색은 작은 글씨에만 씁니다.
+const SEAT_TONE = {
+  남자: {
+    idle: "border-gray-100 bg-white text-male hover:border-brand/40",
+    on: "border-brand bg-brand text-white shadow-brand",
+  },
+  여자: {
+    idle: "border-gray-100 bg-white text-female hover:border-brand/40",
+    on: "border-brand bg-brand text-white shadow-brand",
+  },
+};
+
+const copyAccount = async () => {
+  try {
+    await navigator.clipboard.writeText(BANK_ACCOUNT.replace(/\D/g, ""));
+    alert("계좌번호를 복사했습니다.");
+  } catch {
+    alert(`복사에 실패했습니다. 직접 적어 주세요.\n${BANK_ACCOUNT}`);
+  }
+};
 
 export default function Home() {
   const [availabilities, setAvailabilities] = useState<any[]>([]);
@@ -25,16 +40,17 @@ export default function Home() {
     null,
   );
 
-  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
+  // 예약 완료 후 보여줄 확인 화면 정보
+  const [done, setDone] = useState<{
+    name: string;
+    date: string;
+    time: string;
+    smsSent: boolean;
+  } | null>(null);
 
-  const [userName, setUserName] = useState("");
-  const [userCell, setUserCell] = useState("");
-  const [userAge, setUserAge] = useState("");
   const [userPhone, setUserPhone] = useState("");
   const [gender, setGender] = useState("남자");
   const [isAgreed, setIsAgreed] = useState<boolean | null>(null);
-  const [expectations, setExpectations] = useState("");
-  const [questions, setQuestions] = useState("");
 
   const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -53,6 +69,7 @@ export default function Home() {
         .from("sozo_availability")
         .select("*")
         .eq("is_open", true)
+        .gte("target_date", format(new Date(), "yyyy-MM-dd")) // 지난 일정은 숨김
         .order("target_date", { ascending: true });
 
       if (availData) setAvailabilities(availData);
@@ -79,16 +96,12 @@ export default function Home() {
   });
 
   const resetForm = () => {
-    setUserName("");
-    setUserCell("");
-    setUserAge("");
     setUserPhone("");
     setIsAgreed(null);
-    setExpectations("");
-    setQuestions("");
   };
 
   const handleBack = () => {
+    lastClick.current = "";
     setSelectedDayInfo(null);
     setSelectedGenderSeat(null);
     resetForm();
@@ -97,124 +110,157 @@ export default function Home() {
   const FULL_MESSAGE =
     "죄송합니다. 방금 다른 분께서 예약을 완료하셔서 해당 예약이 마감되었습니다. \n다른 예약일정을 선택해 주시기 바랍니다.";
 
+  // 가장 마지막에 누른 자리. 늦게 도착한 확인 결과가 다른 자리를 닫지 않게 합니다.
+  const lastClick = useRef("");
+
   const handleSeatClick = async (dayInfo: any, selectedGender: string) => {
-    setIsLoading(true);
-
-    const maxSeat =
-      selectedGender === "남자" ? dayInfo.max_male : dayInfo.max_female;
-
-    // 화면이 오래됐을 수 있으니 눌린 시점의 잔여석을 다시 확인 (최종 판정은 DB가 함)
-    const fresh = await fetchSeats();
-
-    if (takenSeats(fresh, dayInfo.target_date, selectedGender) >= maxSeat) {
-      alert(FULL_MESSAGE);
-      setIsLoading(false);
-      return;
-    }
-
+    // 폼은 바로 열고(기다림 없음), 잔여석 재확인은 뒤에서 합니다.
+    const key = `${dayInfo.id}:${selectedGender}`;
+    lastClick.current = key;
+    setDone(null);
     setSelectedDayInfo(dayInfo);
     setSelectedGenderSeat(selectedGender);
     setGender(selectedGender);
-    setIsLoading(false);
+    // 모바일에서는 목록 아래쪽에서 눌러도 폼 맨 위부터 보이게
+    window.scrollTo(0, 0);
+
+    // 화면이 오래됐을 수 있으니 다시 확인 (최종 판정은 신청 시 DB가 함)
+    const maxSeat =
+      selectedGender === "남자" ? dayInfo.max_male : dayInfo.max_female;
+    const fresh = await fetchSeats();
+    if (
+      lastClick.current === key &&
+      takenSeats(fresh, dayInfo.target_date, selectedGender) >= maxSeat
+    ) {
+      alert(FULL_MESSAGE);
+      handleBack();
+    }
   };
 
-  const handleReservation = async (e: React.FormEvent) => {
+  const handleReservation = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedDayInfo || isLoading) return;
     if (isAgreed !== true)
       return alert("소조사역 내용에 동의하셔야 예약이 가능합니다.");
 
+    // 글자 칸은 입력할 때마다 화면 전체가 다시 그려지지 않도록(버벅임 방지)
+    // 상태로 들고 있지 않고, 제출할 때 한 번에 읽습니다.
+    const f = Object.fromEntries(new FormData(e.currentTarget)) as Record<
+      string,
+      string
+    >;
+    const userName = f.userName ?? "";
+
     setIsLoading(true);
 
-    // 정원 확인과 등록을 DB 안에서 한 번에 처리하므로 동시 신청에도 초과되지 않습니다.
-    const { error } = await supabase.rpc("reserve_sozo", {
-      p_target_date: selectedDayInfo.target_date,
-      p_user_name: userName,
-      p_user_phone: userPhone,
-      p_gender: gender,
-      p_cell: userCell,
-      p_age: userAge,
-      p_expectations: expectations,
-      p_questions: questions,
-    });
+    // 정원 확인 + 등록은 DB 함수가 한 번에 처리하고(동시 신청에도 초과 없음),
+    // 안내 문자는 서버가 등록 성공 시에만 보냅니다.
+    let json: { success?: boolean; smsSent?: boolean; error?: string } = {};
+    try {
+      const res = await fetch("/api/reserve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetDate: selectedDayInfo.target_date,
+          userName,
+          userPhone,
+          gender,
+          userCell: f.userCell,
+          userAge: f.userAge,
+          expectations: f.expectations ?? "",
+          questions: f.questions ?? "",
+        }),
+      });
+      json = await res.json();
+    } catch {
+      json = { error: "NETWORK" };
+    }
 
-    if (error) {
+    if (!json.success) {
       await fetchSeats();
-      if (error.message.includes("FULL")) {
+      if (json.error === "FULL") {
         alert(FULL_MESSAGE);
         handleBack();
-      } else if (error.message.includes("CLOSED")) {
+      } else if (json.error === "CLOSED") {
         alert("현재 예약을 받고 있지 않은 일정입니다.");
         handleBack();
+      } else if (json.error === "DUPLICATE") {
+        alert("이 번호로 같은 날짜에 이미 예약되어 있습니다.");
+      } else if (json.error === "INVALID") {
+        alert("입력하신 내용을 다시 확인해 주세요. (연락처 11자리 등)");
       } else {
-        alert("예약 중 오류가 발생했습니다.");
+        alert(
+          "예약 중 오류가 발생했습니다.\n잠시 후 다시 시도해 주세요. 계속되면 담당자에게 문의해 주세요.",
+        );
       }
       setIsLoading(false);
       return;
     }
 
-    try {
-      await fetch("/api/send-message", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userName: userName,
-          userPhone: userPhone,
-          targetDate: selectedDayInfo.target_date,
-          sessionTime: selectedDayInfo.session_time || "오전 10시",
-        }),
-      });
-    } catch (smsError) {
-      console.error("문자 발송 실패:", smsError);
-    }
-
-    alert(
-      "예약이 성공적으로 완료되었습니다!\n곧 문자로 안내가 발송될 예정입니다. 감사합니다.",
-    );
+    const confirmed = {
+      name: userName,
+      date: selectedDayInfo.target_date,
+      time: selectedDayInfo.session_time || "오전 10시",
+      smsSent: json.smsSent !== false,
+    };
     await fetchSeats();
     handleBack();
+    setDone(confirmed);
     setIsLoading(false);
+    window.scrollTo(0, 0);
   };
 
-  const toggleDate = (id: string) => {
-    setExpandedDates((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const isAllExpanded =
-    availabilities.length > 0 && expandedDates.size === availabilities.length;
-  const toggleAll = () => {
-    if (isAllExpanded) {
-      setExpandedDates(new Set());
-    } else {
-      setExpandedDates(new Set(availabilities.map((a) => a.id)));
-    }
+  const renderSeat = (day: any, g: "남자" | "여자", remain: number) => {
+    const selected = selectedGenderSeat === g && selectedDayInfo?.id === day.id;
+    const open = remain > 0;
+    return (
+      <button
+        onClick={() => open && handleSeatClick(day, g)}
+        disabled={!open || isLoading}
+        aria-label={open ? `${g} ${remain}자리 남음, 신청하기` : `${g} 마감`}
+        className={`w-[76px] py-2 flex flex-col items-center rounded-xl border-2 transition active:scale-95 ${
+          !open
+            ? "border-transparent bg-gray-100 text-gray-400 cursor-not-allowed"
+            : selected
+              ? SEAT_TONE[g].on
+              : SEAT_TONE[g].idle
+        }`}
+      >
+        <span className="text-xs font-bold">{g}</span>
+        <span
+          className={`text-base font-bold leading-tight ${open && !selected ? "text-gray-900" : ""}`}
+        >
+          {open ? `${remain}자리` : "마감"}
+        </span>
+      </button>
+    );
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 text-gray-900 flex items-start md:items-center justify-center p-0 md:p-6 lg:p-10 font-sans">
-      <div className="max-w-6xl w-full bg-white md:rounded-3xl shadow-2xl md:overflow-hidden flex flex-col md:flex-row min-h-[100dvh] md:min-h-0 md:h-[850px] border-none md:border border-gray-100">
+    <div className="min-h-screen bg-gray-50 text-gray-900 flex items-start md:items-center justify-center p-0 md:p-6 lg:p-10 font-sans">
+      <div className="max-w-6xl w-full bg-white md:rounded-[24px] md:shadow-card-lg md:overflow-hidden flex flex-col md:flex-row min-h-[100dvh] md:min-h-0 md:h-[850px]">
         {/* ==========================================
             좌측: 날짜 리스트 영역
         ========================================== */}
         <div
-          className={`w-full md:w-[45%] flex flex-col border-r border-gray-200 bg-gray-50 ${selectedGenderSeat ? "hidden md:flex" : "flex"}`}
+          className={`w-full md:w-[45%] flex flex-col border-r border-gray-100 bg-gray-50 ${selectedGenderSeat || done ? "hidden md:flex" : "flex"}`}
         >
-          <div className="bg-[#4A628A] p-6 md:p-8 text-white shadow-md z-20 shrink-0 sticky top-0">
-            <h1 className="text-3xl md:text-4xl font-black tracking-tighter mb-2">
+          <div className="relative overflow-hidden bg-[linear-gradient(135deg,#6b7bff_0%,#8a7bff_55%,#9d8bff_100%)] text-white px-6 py-6 md:px-8 md:py-7 shrink-0">
+            {/* MARF 안내 페이지와 같은 은은한 빛 */}
+            <div className="pointer-events-none absolute -right-10 -top-10 size-44 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.22),transparent_70%)]" />
+            <h1 className="text-[28px] md:text-3xl font-extrabold tracking-[-0.03em]">
               SOZO 예약
             </h1>
-            <p className="text-blue-100 text-base md:text-lg font-medium">
-              원하시는 날짜를 선택해 주세요.
+            <p className="text-[15px] font-semibold opacity-95 mt-1">
+              날짜 옆 남자 / 여자 자리를 눌러 신청하세요.
             </p>
+            <span className="inline-flex items-center gap-1.5 mt-3 text-[13px] font-semibold bg-white/20 px-3 py-1.5 rounded-full">
+              <Clock size={13} /> 세션 90분
+            </span>
           </div>
 
           <div className="flex-1 md:overflow-y-auto p-4 md:p-6 space-y-4">
-            {isLoading ? (
+            {isLoading && availabilities.length === 0 ? (
               <div className="text-center py-20 text-gray-400 text-lg font-bold">
                 잠시만 기다려주세요...
               </div>
@@ -225,128 +271,42 @@ export default function Home() {
               </div>
             ) : (
               <div className="pb-10">
-                <div className="flex justify-end mb-3">
-                  <button
-                    onClick={toggleAll}
-                    className="flex items-center gap-1.5 text-sm font-bold text-gray-500 hover:text-[#4A628A] transition-colors bg-white px-4 py-2 rounded-full shadow-sm border border-gray-200"
-                  >
-                    <ChevronsUpDown size={16} />
-                    {isAllExpanded ? "전체 접기" : "전체 펼치기"}
-                  </button>
-                </div>
-
-                <div className="space-y-3">
+                <ul className="bg-white rounded-[20px] shadow-card divide-y divide-gray-100 overflow-hidden">
                   {availabilities.map((day) => {
                     const dateObj = parseISO(day.target_date);
-                    const dayOfWeek = WEEKDAYS[getDay(dateObj)];
                     const { remainMale, remainFemale } = getRemainingSeats(
                       day.target_date,
                       day.max_male,
                       day.max_female,
                     );
-                    const displayTime = day.session_time || "오전 10시";
-                    const isExpanded = expandedDates.has(day.id);
+                    const soldOut = remainMale <= 0 && remainFemale <= 0;
 
                     return (
-                      <div
+                      <li
                         key={day.id}
-                        className="bg-white border-2 border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden"
+                        className={`flex items-center justify-between gap-3 px-4 py-3 ${soldOut ? "bg-gray-50" : ""}`}
                       >
-                        <div
-                          onClick={() => toggleDate(day.id)}
-                          className="flex items-center justify-between p-4 md:p-5 cursor-pointer hover:bg-gray-50 transition-colors"
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="bg-gray-100 p-2.5 rounded-full text-[#4A628A]">
-                              <CalendarDays size={24} />
-                            </div>
-                            <div>
-                              <h2 className="text-lg md:text-xl font-black text-gray-800">
-                                {format(dateObj, "yyyy년 MM월 dd일")}{" "}
-                                <span className="text-gray-400 text-base md:text-lg">
-                                  ({dayOfWeek})
-                                </span>
-                              </h2>
-                              <div className="flex items-center gap-1.5 text-gray-600 font-bold mt-0.5 text-sm">
-                                <Clock size={14} /> {displayTime} (90분 세션)
-                              </div>
-                            </div>
-                          </div>
-                          <div
-                            className={`p-1.5 rounded-full transition-transform duration-300 ${isExpanded ? "bg-blue-50 text-[#4A628A]" : "bg-gray-50 text-gray-400"}`}
+                        <div className="min-w-0">
+                          <p
+                            className={`text-lg font-bold leading-tight ${soldOut ? "text-gray-400" : "text-gray-900"}`}
                           >
-                            {isExpanded ? (
-                              <ChevronUp size={20} />
-                            ) : (
-                              <ChevronDown size={20} />
-                            )}
-                          </div>
+                            {format(dateObj, "M월 d일")}{" "}
+                            <span className="text-gray-400 font-bold">
+                              ({WEEKDAYS[getDay(dateObj)]})
+                            </span>
+                          </p>
+                          <p className="flex items-center gap-1 text-sm font-bold text-gray-500 mt-0.5">
+                            <Clock size={13} /> {day.session_time || "오전 10시"}
+                          </p>
                         </div>
-
-                        {isExpanded && (
-                          <div className="px-4 pb-4 md:px-5 md:pb-5 animate-fade-in border-t border-gray-100 pt-4 md:pt-5">
-                            <div className="grid grid-cols-2 gap-3">
-                              <button
-                                onClick={() =>
-                                  remainMale > 0 && handleSeatClick(day, "남자")
-                                }
-                                disabled={remainMale <= 0 || isLoading}
-                                className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
-                                  remainMale > 0
-                                    ? selectedGenderSeat === "남자" &&
-                                      selectedDayInfo?.id === day.id
-                                      ? "border-blue-600 bg-blue-600 text-white shadow-lg"
-                                      : "border-blue-100 bg-blue-50/50 hover:bg-blue-100 cursor-pointer"
-                                    : "border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed"
-                                }`}
-                              >
-                                <span
-                                  className={`text-sm font-bold mb-1 ${selectedGenderSeat === "남자" && selectedDayInfo?.id === day.id ? "text-blue-100" : remainMale > 0 ? "text-blue-600" : "text-gray-400"}`}
-                                >
-                                  남자 잔여
-                                </span>
-                                <span
-                                  className={`text-xl md:text-2xl font-black ${selectedGenderSeat === "남자" && selectedDayInfo?.id === day.id ? "text-white" : remainMale > 0 ? "text-gray-900" : "text-gray-400"}`}
-                                >
-                                  {remainMale > 0 ? `${remainMale}명` : "마감"}
-                                </span>
-                              </button>
-
-                              <button
-                                onClick={() =>
-                                  remainFemale > 0 &&
-                                  handleSeatClick(day, "여자")
-                                }
-                                disabled={remainFemale <= 0 || isLoading}
-                                className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
-                                  remainFemale > 0
-                                    ? selectedGenderSeat === "여자" &&
-                                      selectedDayInfo?.id === day.id
-                                      ? "border-red-600 bg-red-500 text-white shadow-lg"
-                                      : "border-red-100 bg-red-50/50 hover:bg-red-100 cursor-pointer"
-                                    : "border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed"
-                                }`}
-                              >
-                                <span
-                                  className={`text-sm font-bold mb-1 ${selectedGenderSeat === "여자" && selectedDayInfo?.id === day.id ? "text-red-100" : remainFemale > 0 ? "text-red-600" : "text-gray-400"}`}
-                                >
-                                  여자 잔여
-                                </span>
-                                <span
-                                  className={`text-xl md:text-2xl font-black ${selectedGenderSeat === "여자" && selectedDayInfo?.id === day.id ? "text-white" : remainFemale > 0 ? "text-gray-900" : "text-gray-400"}`}
-                                >
-                                  {remainFemale > 0
-                                    ? `${remainFemale}명`
-                                    : "마감"}
-                                </span>
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                        <div className="flex gap-2 shrink-0">
+                          {renderSeat(day, "남자", remainMale)}
+                          {renderSeat(day, "여자", remainFemale)}
+                        </div>
+                      </li>
                     );
                   })}
-                </div>
+                </ul>
               </div>
             )}
           </div>
@@ -356,9 +316,67 @@ export default function Home() {
             우측: 예약 폼 영역
         ========================================== */}
         <div
-          className={`w-full md:w-[55%] flex flex-col bg-white ${selectedGenderSeat ? "flex" : "hidden md:flex"}`}
+          className={`w-full md:w-[55%] flex flex-col bg-gray-50 ${selectedGenderSeat || done ? "flex" : "hidden md:flex"}`}
         >
-          {selectedGenderSeat && selectedDayInfo ? (
+          {done ? (
+            <div className="flex-1 md:overflow-y-auto p-6 md:p-10 animate-fade-in">
+              <div className="flex flex-col items-center text-center pt-6 md:pt-10">
+                <CheckCircle2 size={64} className="text-brand mb-4" />
+                <h2 className="text-2xl md:text-3xl font-bold text-gray-900">
+                  예약이 완료되었습니다
+                </h2>
+                <p className="text-lg text-gray-600 font-medium mt-2">
+                  {done.name}님, 감사합니다.
+                </p>
+              </div>
+
+              <div className="mt-8 rounded-2xl border-2 border-gray-100 divide-y divide-gray-100">
+                <div className="flex justify-between gap-4 p-5 text-lg">
+                  <span className="font-bold text-gray-500">일정</span>
+                  <span className="font-bold text-gray-900 text-right">
+                    {format(parseISO(done.date), "yyyy년 MM월 dd일")} (
+                    {WEEKDAYS[getDay(parseISO(done.date))]}) {done.time}
+                  </span>
+                </div>
+                <div className="p-5 text-lg space-y-3">
+                  <div className="flex justify-between gap-4">
+                    <span className="font-bold text-gray-500 shrink-0">
+                      후원금
+                    </span>
+                    <span className="font-bold text-gray-900 text-right">
+                      3만원, 신청자 성함으로 입금
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 bg-gray-50 rounded-xl p-4">
+                    <span className="font-bold text-gray-800">
+                      {BANK_ACCOUNT}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={copyAccount}
+                      className="shrink-0 flex items-center gap-1.5 bg-brand text-white text-base font-bold px-4 py-2.5 rounded-xl active:scale-95 transition"
+                    >
+                      <Copy size={16} /> 복사
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-base text-gray-500 font-medium mt-5 text-center">
+                {done.smsSent
+                  ? "같은 내용을 문자로도 보내드렸습니다."
+                  : "안내 문자 발송에 실패했습니다. 이 화면을 캡처해 두세요."}
+              </p>
+
+              <button
+                type="button"
+                onClick={() => setDone(null)}
+                className="md:hidden w-full mt-8 bg-gray-100 text-gray-700 font-bold py-4 rounded-2xl text-lg"
+              >
+                처음으로
+              </button>
+            </div>
+          ) : selectedGenderSeat && selectedDayInfo ? (
             <div className="flex-1 md:overflow-y-auto p-6 md:p-10 animate-fade-in relative">
               <button
                 type="button"
@@ -368,76 +386,95 @@ export default function Home() {
                 <ChevronLeft size={24} /> 뒤로 가서 날짜 다시 선택하기
               </button>
 
-              <div
-                className={`flex flex-col md:flex-row items-center justify-between p-6 rounded-2xl text-white font-black shadow-md ${gender === "남자" ? "bg-blue-600" : "bg-red-600"} gap-4 mb-8`}
-              >
-                <div className="text-xl md:text-2xl flex items-center gap-2">
-                  {format(
-                    parseISO(selectedDayInfo.target_date),
-                    "yyyy년 MM월 dd일",
-                  )}
+              <div className="flex flex-wrap items-center justify-between gap-3 p-5 rounded-[20px] bg-brand-soft mb-8">
+                <div>
+                  <p className="text-sm font-semibold text-brand">신청하는 일정</p>
+                  <p className="text-xl md:text-2xl font-bold text-gray-900 mt-0.5">
+                    {format(parseISO(selectedDayInfo.target_date), "M월 d일")}{" "}
+                    ({WEEKDAYS[getDay(parseISO(selectedDayInfo.target_date))]}){" "}
+                    <span className="whitespace-nowrap">
+                      {selectedDayInfo.session_time || "오전 10시"}
+                    </span>
+                  </p>
                 </div>
-                <div className="flex items-center gap-2 text-xl md:text-2xl bg-white/20 px-4 py-2 rounded-xl">
-                  {gender}석 예약 진행 중
-                </div>
+                <span
+                  className={`whitespace-nowrap bg-white px-3 py-1.5 rounded-full text-sm font-bold ${gender === "남자" ? "text-male" : "text-female"}`}
+                >
+                  {gender}석
+                </span>
               </div>
 
               <form onSubmit={handleReservation} className="space-y-10 pb-10">
                 {/* 1. 개인정보 */}
-                <div className="bg-white p-6 md:p-8 rounded-3xl border-2 border-gray-100 shadow-sm space-y-6">
-                  <h3 className="font-black text-[#4A628A] border-b-2 border-gray-100 pb-4 text-xl md:text-2xl">
+                <div className="bg-white p-6 md:p-8 rounded-[20px] shadow-card space-y-6">
+                  <h3 className="font-bold text-gray-900 border-b border-gray-100 pb-4 text-xl md:text-2xl">
                     1. 개인정보 입력
                   </h3>
                   <div className="space-y-6">
                     <div className="space-y-2">
-                      <label className="text-base md:text-lg font-bold text-gray-700 ml-1">
+                      <label htmlFor="userName" className="block text-base md:text-lg font-bold text-gray-700 ml-1">
                         성함
                       </label>
                       <input
+                        id="userName"
                         type="text"
-                        value={userName}
-                        onChange={(e) => setUserName(e.target.value)}
-                        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg outline-none focus:border-[#4A628A] bg-gray-50 focus:bg-white transition-all"
+                        autoComplete="name"
+                        maxLength={30}
+                        name="userName"
+                        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg outline-none focus:border-brand bg-gray-50 focus:bg-white transition-all"
                         required
                         placeholder="예: 홍길동"
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-base md:text-lg font-bold text-gray-700 ml-1">
+                      <label htmlFor="userCell" className="block text-base md:text-lg font-bold text-gray-700 ml-1">
                         소속셀
                       </label>
                       <input
+                        id="userCell"
                         type="text"
-                        value={userCell}
-                        onChange={(e) => setUserCell(e.target.value)}
-                        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg outline-none focus:border-[#4A628A] bg-gray-50 focus:bg-white transition-all"
+                        maxLength={30}
+                        name="userCell"
+                        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg outline-none focus:border-brand bg-gray-50 focus:bg-white transition-all"
                         required
                         placeholder="예: 1A16"
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-base md:text-lg font-bold text-gray-700 ml-1">
+                      <label htmlFor="userAge" className="block text-base md:text-lg font-bold text-gray-700 ml-1">
                         나이
                       </label>
                       <input
-                        type="number"
-                        value={userAge}
-                        onChange={(e) => setUserAge(e.target.value)}
-                        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg outline-none focus:border-[#4A628A] bg-gray-50 focus:bg-white transition-all"
+                        id="userAge"
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={3}
+                        name="userAge"
+                        // 숫자만 남김 (화면 전체를 다시 그리지 않도록 상태 대신 직접 수정)
+                        onInput={(e) => {
+                          const el = e.currentTarget;
+                          el.value = el.value.replace(/\D/g, "");
+                        }}
+                        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg outline-none focus:border-brand bg-gray-50 focus:bg-white transition-all"
                         required
                         placeholder="예: 32"
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-base md:text-lg font-bold text-gray-700 ml-1">
+                      <label htmlFor="userPhone" className="block text-base md:text-lg font-bold text-gray-700 ml-1">
                         연락처
                       </label>
                       <input
+                        id="userPhone"
                         type="tel"
+                        inputMode="numeric"
+                        autoComplete="tel-national"
+                        pattern="01\d-\d{3,4}-\d{4}"
+                        title="010-1234-5678 형식으로 입력해 주세요."
                         value={userPhone}
                         maxLength={13}
                         onChange={(e) => setUserPhone(formatPhone(e.target.value))}
-                        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg outline-none focus:border-[#4A628A] bg-gray-50 focus:bg-white transition-all"
+                        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg outline-none focus:border-brand bg-gray-50 focus:bg-white transition-all"
                         required
                         placeholder="010-1234-5678"
                       />
@@ -461,17 +498,17 @@ export default function Home() {
                 </div>
 
                 {/* 2. 사역 안내 및 동의 */}
-                <div className="bg-white p-6 md:p-8 rounded-3xl border-2 border-gray-100 shadow-sm space-y-6">
-                  <h3 className="font-black text-[#4A628A] border-b-2 border-gray-100 pb-4 text-xl md:text-2xl">
+                <div className="bg-white p-6 md:p-8 rounded-[20px] shadow-card space-y-6">
+                  <h3 className="font-bold text-gray-900 border-b border-gray-100 pb-4 text-xl md:text-2xl">
                     2. 소조 사역 안내 및 동의
                   </h3>
                   <ul className="text-lg md:text-xl text-gray-700 space-y-4 bg-gray-50 p-6 rounded-2xl leading-loose font-medium border border-gray-200">
                     <li className="flex gap-2 items-start">
-                      <span className="text-[#4A628A] font-bold mt-1">•</span>{" "}
+                      <span className="text-brand font-bold mt-1">•</span>{" "}
                       <span>소조 세션은 90분입니다.</span>
                     </li>
                     <li className="flex gap-2 items-start">
-                      <span className="text-[#4A628A] font-bold mt-1">•</span>{" "}
+                      <span className="text-brand font-bold mt-1">•</span>{" "}
                       <span>
                         소조 세션은 3만원의 후원금을 받고 있습니다. 이 후원금은
                         소조사역 운영 및 사역자 훈련비용, 더 어려운 곳의 영혼을
@@ -485,13 +522,20 @@ export default function Home() {
                           신청하시는 분 성함으로 입금하여 주시기 바랍니다.
                         </span>{" "}
                         신청 후에는 환불되지 않습니다. <br />
-                        <span className="font-bold">
-                          국민은행 920301-01-728406 (하나교회)
+                        <span className="inline-flex flex-wrap items-center gap-2 mt-1">
+                          <span className="font-bold">{BANK_ACCOUNT}</span>
+                          <button
+                            type="button"
+                            onClick={copyAccount}
+                            className="inline-flex items-center gap-1 text-sm font-bold text-brand bg-white border border-gray-300 px-3 py-1.5 rounded-lg active:scale-95 transition"
+                          >
+                            <Copy size={14} /> 복사
+                          </button>
                         </span>
                       </span>
                     </li>
                     <li className="flex gap-2 items-start">
-                      <span className="text-[#4A628A] font-bold mt-1">•</span>{" "}
+                      <span className="text-brand font-bold mt-1">•</span>{" "}
                       <span>
                         소조 세션에는 인도하는 사역자 1인과 중보자(최소 1명)가
                         세션에 팀으로 함께 할 수도 있습니다. 중보자는 세션 중
@@ -503,7 +547,7 @@ export default function Home() {
                       </span>
                     </li>
                     <li className="flex gap-2 items-start">
-                      <span className="text-[#4A628A] font-bold mt-1">•</span>{" "}
+                      <span className="text-brand font-bold mt-1">•</span>{" "}
                       <span>
                         아래의 사역은 귀하의 자발적인 참여를 통해 이루어집니다.
                         따라서 사역자는 귀하의 참여를 기대하기 어렵다고 판단할
@@ -511,7 +555,7 @@ export default function Home() {
                       </span>
                     </li>
                     <li className="flex gap-2 items-start">
-                      <span className="text-[#4A628A] font-bold mt-1">•</span>{" "}
+                      <span className="text-brand font-bold mt-1">•</span>{" "}
                       <span>
                         소조는 성령님이 주도하시는 성령 사역이며, 모든
                         사역자들은 상담 관련 자격증 보유자가 아닐 수 있으며 의학
@@ -519,21 +563,21 @@ export default function Home() {
                       </span>
                     </li>
                   </ul>
-                  <div className="p-6 bg-blue-50 border-2 border-blue-200 rounded-2xl text-center">
+                  <div className="p-6 bg-brand/5 border-2 border-brand/20 rounded-2xl text-center">
                     <p className="text-lg md:text-xl font-bold text-gray-800 mb-6 leading-relaxed">
                       * 본인은 위의 내용을 모두 이해하고 나의 자발적인 의지로
                       소조를 받고자 신청하며, 수원 하나교회 및 소조 사역자는
                       사역 내용에 대하여 어떠한 법적인 책임이 없음을 확인합니다.
                     </p>
                     <div className="flex flex-col md:flex-row justify-center gap-4 md:gap-10">
-                      <label className="flex items-center justify-center gap-3 cursor-pointer p-4 bg-white rounded-xl border-2 border-blue-100 hover:border-blue-400 transition">
+                      <label className="flex items-center justify-center gap-3 cursor-pointer p-4 bg-white rounded-xl border-2 border-brand/20 hover:border-brand transition">
                         <input
                           type="radio"
                           checked={isAgreed === true}
                           onChange={() => setIsAgreed(true)}
-                          className="w-6 h-6 accent-[#4A628A]"
+                          className="w-6 h-6 accent-brand"
                         />{" "}
-                        <span className="text-xl font-black text-[#4A628A]">
+                        <span className="text-xl font-bold text-brand">
                           동의한다
                         </span>
                       </label>
@@ -544,7 +588,7 @@ export default function Home() {
                           onChange={() => setIsAgreed(false)}
                           className="w-6 h-6 accent-red-500"
                         />{" "}
-                        <span className="text-xl font-black text-red-500">
+                        <span className="text-xl font-bold text-red-500">
                           동의하지 않는다
                         </span>
                       </label>
@@ -554,8 +598,8 @@ export default function Home() {
 
                 {/* 3. 사전 질문 */}
                 {isAgreed && (
-                  <div className="animate-fade-in space-y-6 bg-white p-6 md:p-8 rounded-3xl border-2 border-gray-100 shadow-sm">
-                    <h3 className="font-black text-[#4A628A] border-b-2 border-gray-100 pb-4 text-xl md:text-2xl">
+                  <div className="animate-fade-in space-y-6 bg-white p-6 md:p-8 rounded-[20px] shadow-card">
+                    <h3 className="font-bold text-gray-900 border-b border-gray-100 pb-4 text-xl md:text-2xl">
                       3. 사전 질문 (선택사항)
                     </h3>
                     <div className="space-y-3">
@@ -563,9 +607,8 @@ export default function Home() {
                         소조사역을 통해 기대하는 것
                       </label>
                       <textarea
-                        value={expectations}
-                        onChange={(e) => setExpectations(e.target.value)}
-                        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg h-32 outline-none focus:border-[#4A628A] bg-gray-50 focus:bg-white resize-none"
+                        name="expectations"
+                        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg h-32 outline-none focus:border-brand bg-gray-50 focus:bg-white resize-none"
                         placeholder="자유롭게 적어주세요."
                       />
                     </div>
@@ -574,9 +617,8 @@ export default function Home() {
                         소조사역과 관련 궁금한 것
                       </label>
                       <textarea
-                        value={questions}
-                        onChange={(e) => setQuestions(e.target.value)}
-                        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg h-32 outline-none focus:border-[#4A628A] bg-gray-50 focus:bg-white resize-none"
+                        name="questions"
+                        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg h-32 outline-none focus:border-brand bg-gray-50 focus:bg-white resize-none"
                         placeholder="자유롭게 적어주세요."
                       />
                     </div>
@@ -585,7 +627,7 @@ export default function Home() {
                 <button
                   type="submit"
                   disabled={isAgreed !== true || isLoading}
-                  className="w-full bg-[#4A628A] text-white font-black py-6 rounded-2xl shadow-xl hover:bg-[#3A4D6D] transition-all active:scale-95 disabled:bg-gray-300 disabled:shadow-none text-xl md:text-2xl mt-4"
+                  className="w-full bg-brand text-white font-bold py-6 rounded-2xl shadow-brand hover:bg-brand-dark transition-all active:scale-95 disabled:bg-gray-300 disabled:shadow-none text-xl md:text-2xl mt-4"
                 >
                   {isLoading ? "예약 처리 중입니다..." : "예약 완료하기"}
                 </button>
@@ -594,12 +636,12 @@ export default function Home() {
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 text-gray-300">
               <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-6 shadow-inner">
-                <span className="text-5xl">📅</span>
+                <CalendarDays size={44} className="text-gray-400" />
               </div>
               <p className="text-xl font-bold text-gray-400">
-                좌측 리스트에서 원하시는 날짜를 클릭하여
+                왼쪽에서 날짜와 자리를 고르면
                 <br />
-                예약을 진행해 주세요.
+                신청서가 여기에 열립니다.
               </p>
             </div>
           )}

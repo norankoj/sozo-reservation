@@ -83,9 +83,9 @@ export default function AdminSettings() {
     if (sortConfig.key !== columnName)
       return <ArrowUpDown size={14} className="text-gray-300" />;
     return sortConfig.direction === "asc" ? (
-      <ChevronUp size={16} className="text-[#4A628A]" />
+      <ChevronUp size={16} className="text-brand" />
     ) : (
-      <ChevronDown size={16} className="text-[#4A628A]" />
+      <ChevronDown size={16} className="text-brand" />
     );
   };
 
@@ -149,6 +149,23 @@ export default function AdminSettings() {
       }
       setAvailabilities((prev) => [...prev, data]);
     } else {
+      // 예약은 날짜로 일정과 연결되므로, 신청자가 있는 일정의 날짜를 옮기면
+      // 기존 신청자가 어느 일정에도 속하지 않게 됩니다.
+      const before = availabilities.find((a) => a.id === editingId);
+      if (before && before.target_date !== payload.target_date) {
+        const { count } = await supabase
+          .from("sozo_reservations")
+          .select("id", { count: "exact", head: true })
+          .eq("target_date", before.target_date);
+        if (count) {
+          setIsSaving(false);
+          return alert(
+            `${before.target_date} 일정에는 이미 ${count}명이 신청해서 날짜를 바꿀 수 없습니다.\n` +
+              `새 날짜로 일정을 따로 추가해 주세요.`,
+          );
+        }
+      }
+
       const { data, error } = await supabase
         .from("sozo_availability")
         .update(payload)
@@ -209,11 +226,11 @@ export default function AdminSettings() {
   // --- 💡 공통 렌더링 영역 (모바일/PC에서 모두 쓰는 작은 조각들) ---
   const renderStatusBadge = (isOpen: boolean) =>
     isOpen ? (
-      <span className="bg-green-100 text-green-700 px-3 py-1.5 rounded-full text-xs font-black shadow-sm">
+      <span className="bg-green-100 text-green-700 px-3 py-1.5 rounded-full text-xs font-bold shadow-sm">
         🟢 오픈됨
       </span>
     ) : (
-      <span className="bg-gray-100 text-gray-500 px-3 py-1.5 rounded-full text-xs font-black shadow-sm">
+      <span className="bg-gray-100 text-gray-500 px-3 py-1.5 rounded-full text-xs font-bold shadow-sm">
         🔴 닫힘
       </span>
     );
@@ -223,7 +240,7 @@ export default function AdminSettings() {
       {/* 1. 상단 헤더 및 추가 버튼 (공통) */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 md:p-6 rounded-2xl shadow-sm border border-gray-100">
         <div>
-          <h1 className="text-xl md:text-2xl font-black text-gray-800 tracking-tight flex items-center gap-2">
+          <h1 className="text-xl md:text-2xl font-bold text-gray-800 tracking-tight flex items-center gap-2">
             ⚙️ 예약 일정 설정
           </h1>
           <p className="text-sm md:text-base text-gray-500 mt-1">
@@ -232,7 +249,7 @@ export default function AdminSettings() {
         </div>
         <button
           onClick={handleAddNew}
-          className="w-full md:w-auto flex justify-center items-center gap-2 bg-[#4A628A] text-white px-5 py-3.5 md:py-3 rounded-xl font-bold hover:bg-[#3A4D6D] transition active:scale-95 shadow-md"
+          className="w-full md:w-auto flex justify-center items-center gap-2 bg-brand text-white px-5 py-3.5 md:py-3 rounded-xl font-bold hover:bg-brand-dark transition active:scale-95 shadow-md"
         >
           <Plus size={20} /> 새로운 일정 추가
         </button>
@@ -275,7 +292,7 @@ export default function AdminSettings() {
 
         {/* 모바일: 새로 추가하는 입력 폼 */}
         {editingId === "new" && (
-          <div className="bg-blue-50/50 p-5 rounded-2xl border-2 border-[#4A628A] shadow-md space-y-4 animate-fade-in">
+          <div className="bg-brand/5 p-5 rounded-2xl border-2 border-brand shadow-md space-y-4 animate-fade-in">
             <div>
               <label className="text-xs font-bold text-gray-500 mb-1 block">
                 예약 날짜
@@ -285,7 +302,7 @@ export default function AdminSettings() {
                 name="target_date"
                 value={editForm.target_date}
                 onChange={handleChange}
-                className="w-full p-3 rounded-xl border border-gray-300 text-gray-900 font-bold outline-none focus:ring-2 focus:ring-[#4A628A]"
+                className="w-full p-3 rounded-xl border border-gray-300 text-gray-900 font-bold outline-none focus:ring-2 focus:ring-brand"
               />
             </div>
             <div>
@@ -298,12 +315,12 @@ export default function AdminSettings() {
                 value={editForm.session_time}
                 onChange={handleChange}
                 placeholder="오전 10시"
-                className="w-full p-3 rounded-xl border border-gray-300 text-gray-900 font-bold outline-none focus:ring-2 focus:ring-[#4A628A]"
+                className="w-full p-3 rounded-xl border border-gray-300 text-gray-900 font-bold outline-none focus:ring-2 focus:ring-brand"
               />
             </div>
             <div className="flex gap-4">
               <div className="flex-1">
-                <label className="text-xs font-bold text-blue-600 mb-1 block">
+                <label className="text-xs font-bold text-male mb-1 block">
                   남자 정원
                 </label>
                 <input
@@ -312,11 +329,11 @@ export default function AdminSettings() {
                   min="0"
                   value={editForm.max_male}
                   onChange={handleChange}
-                  className="w-full p-3 rounded-xl border border-gray-300 text-blue-600 text-center font-black outline-none focus:ring-2 focus:ring-[#4A628A]"
+                  className="w-full p-3 rounded-xl border border-gray-300 text-male text-center font-bold outline-none focus:ring-2 focus:ring-brand"
                 />
               </div>
               <div className="flex-1">
-                <label className="text-xs font-bold text-red-500 mb-1 block">
+                <label className="text-xs font-bold text-female mb-1 block">
                   여자 정원
                 </label>
                 <input
@@ -325,7 +342,7 @@ export default function AdminSettings() {
                   min="0"
                   value={editForm.max_female}
                   onChange={handleChange}
-                  className="w-full p-3 rounded-xl border border-gray-300 text-red-500 text-center font-black outline-none focus:ring-2 focus:ring-[#4A628A]"
+                  className="w-full p-3 rounded-xl border border-gray-300 text-female text-center font-bold outline-none focus:ring-2 focus:ring-brand"
                 />
               </div>
             </div>
@@ -337,7 +354,7 @@ export default function AdminSettings() {
                 name="is_open"
                 value={editForm.is_open.toString()}
                 onChange={handleChange}
-                className="w-full p-3 rounded-xl border border-gray-300 text-gray-900 font-bold outline-none focus:ring-2 focus:ring-[#4A628A] bg-white"
+                className="w-full p-3 rounded-xl border border-gray-300 text-gray-900 font-bold outline-none focus:ring-2 focus:ring-brand bg-white"
               >
                 <option value="true">🟢 오픈 (예약 받기)</option>
                 <option value="false">🔴 마감 (예약 닫기)</option>
@@ -353,7 +370,7 @@ export default function AdminSettings() {
               <button
                 onClick={handleSave}
                 disabled={isSaving}
-                className="flex-1 bg-[#4A628A] text-white py-3.5 rounded-xl font-black active:scale-95 transition disabled:opacity-60"
+                className="flex-1 bg-brand text-white py-3.5 rounded-xl font-bold active:scale-95 transition disabled:opacity-60"
               >
                 {isSaving ? "저장 중..." : "저장 완료"}
               </button>
@@ -370,7 +387,7 @@ export default function AdminSettings() {
               return (
                 <div
                   key={item.id}
-                  className="bg-blue-50/50 p-5 rounded-2xl border-2 border-[#4A628A] shadow-md space-y-4"
+                  className="bg-brand/5 p-5 rounded-2xl border-2 border-brand shadow-md space-y-4"
                 >
                   <div>
                     <label className="text-xs font-bold text-gray-500 mb-1 block">
@@ -381,7 +398,7 @@ export default function AdminSettings() {
                       name="target_date"
                       value={editForm.target_date}
                       onChange={handleChange}
-                      className="w-full p-3 rounded-xl border border-gray-300 text-gray-900 font-bold outline-none focus:ring-2 focus:ring-[#4A628A]"
+                      className="w-full p-3 rounded-xl border border-gray-300 text-gray-900 font-bold outline-none focus:ring-2 focus:ring-brand"
                     />
                   </div>
                   <div>
@@ -393,12 +410,12 @@ export default function AdminSettings() {
                       name="session_time"
                       value={editForm.session_time}
                       onChange={handleChange}
-                      className="w-full p-3 rounded-xl border border-gray-300 text-gray-900 font-bold outline-none focus:ring-2 focus:ring-[#4A628A]"
+                      className="w-full p-3 rounded-xl border border-gray-300 text-gray-900 font-bold outline-none focus:ring-2 focus:ring-brand"
                     />
                   </div>
                   <div className="flex gap-4">
                     <div className="flex-1">
-                      <label className="text-xs font-bold text-blue-600 mb-1 block">
+                      <label className="text-xs font-bold text-male mb-1 block">
                         남자 정원
                       </label>
                       <input
@@ -407,11 +424,11 @@ export default function AdminSettings() {
                         min="0"
                         value={editForm.max_male}
                         onChange={handleChange}
-                        className="w-full p-3 rounded-xl border border-gray-300 text-blue-600 text-center font-black outline-none focus:ring-2 focus:ring-[#4A628A]"
+                        className="w-full p-3 rounded-xl border border-gray-300 text-male text-center font-bold outline-none focus:ring-2 focus:ring-brand"
                       />
                     </div>
                     <div className="flex-1">
-                      <label className="text-xs font-bold text-red-500 mb-1 block">
+                      <label className="text-xs font-bold text-female mb-1 block">
                         여자 정원
                       </label>
                       <input
@@ -420,7 +437,7 @@ export default function AdminSettings() {
                         min="0"
                         value={editForm.max_female}
                         onChange={handleChange}
-                        className="w-full p-3 rounded-xl border border-gray-300 text-red-500 text-center font-black outline-none focus:ring-2 focus:ring-[#4A628A]"
+                        className="w-full p-3 rounded-xl border border-gray-300 text-female text-center font-bold outline-none focus:ring-2 focus:ring-brand"
                       />
                     </div>
                   </div>
@@ -432,7 +449,7 @@ export default function AdminSettings() {
                       name="is_open"
                       value={editForm.is_open.toString()}
                       onChange={handleChange}
-                      className="w-full p-3 rounded-xl border border-gray-300 text-gray-900 font-bold outline-none focus:ring-2 focus:ring-[#4A628A] bg-white"
+                      className="w-full p-3 rounded-xl border border-gray-300 text-gray-900 font-bold outline-none focus:ring-2 focus:ring-brand bg-white"
                     >
                       <option value="true">🟢 오픈 (예약 받기)</option>
                       <option value="false">🔴 마감 (예약 닫기)</option>
@@ -448,7 +465,7 @@ export default function AdminSettings() {
                     <button
                       onClick={handleSave}
                       disabled={isSaving}
-                      className="flex-1 bg-[#4A628A] text-white py-3.5 rounded-xl font-black active:scale-95 transition disabled:opacity-60"
+                      className="flex-1 bg-brand text-white py-3.5 rounded-xl font-bold active:scale-95 transition disabled:opacity-60"
                     >
                       {isSaving ? "저장 중..." : "저장 완료"}
                     </button>
@@ -465,11 +482,11 @@ export default function AdminSettings() {
               >
                 <div className="flex justify-between items-start border-b border-gray-100 pb-4">
                   <div className="flex items-center gap-3">
-                    <div className="bg-gray-100 p-2.5 rounded-full text-[#4A628A]">
+                    <div className="bg-gray-100 p-2.5 rounded-full text-brand">
                       <CalendarDays size={20} />
                     </div>
                     <div>
-                      <h3 className="font-black text-gray-800 text-lg">
+                      <h3 className="font-bold text-gray-800 text-lg">
                         {item.target_date}
                       </h3>
                       <p className="font-bold text-gray-500 text-sm mt-0.5">
@@ -485,7 +502,7 @@ export default function AdminSettings() {
                     <p className="text-xs font-bold text-gray-500 mb-1">
                       남자 정원
                     </p>
-                    <p className="font-black text-blue-600 text-lg">
+                    <p className="font-bold text-male text-lg">
                       {item.max_male}명
                     </p>
                   </div>
@@ -494,7 +511,7 @@ export default function AdminSettings() {
                     <p className="text-xs font-bold text-gray-500 mb-1">
                       여자 정원
                     </p>
-                    <p className="font-black text-red-500 text-lg">
+                    <p className="font-bold text-female text-lg">
                       {item.max_female}명
                     </p>
                   </div>
@@ -537,8 +554,8 @@ export default function AdminSettings() {
                   </div>
                 </th>
                 <th className="py-4 px-4 text-gray-700 font-bold">시간</th>
-                <th className="py-4 px-4 text-blue-600 font-bold">남자 정원</th>
-                <th className="py-4 px-4 text-red-500 font-bold">여자 정원</th>
+                <th className="py-4 px-4 text-male font-bold">남자 정원</th>
+                <th className="py-4 px-4 text-female font-bold">여자 정원</th>
                 <th
                   className="py-4 px-4 text-gray-700 font-bold cursor-pointer hover:bg-gray-200 transition group"
                   onClick={() => requestSort("is_open")}
@@ -554,14 +571,14 @@ export default function AdminSettings() {
             <tbody className="divide-y divide-gray-100">
               {/* PC: 새로 추가하는 행 */}
               {editingId === "new" && (
-                <tr className="bg-blue-50/30 animate-fade-in shadow-inner">
+                <tr className="bg-brand/5 animate-fade-in shadow-inner">
                   <td className="py-3 px-3">
                     <input
                       type="date"
                       name="target_date"
                       value={editForm.target_date}
                       onChange={handleChange}
-                      className="w-full border border-gray-300 rounded-lg p-2 text-gray-900 outline-none focus:border-[#4A628A] font-bold"
+                      className="w-full border border-gray-300 rounded-lg p-2 text-gray-900 outline-none focus:border-brand font-bold"
                     />
                   </td>
                   <td className="py-3 px-3">
@@ -571,7 +588,7 @@ export default function AdminSettings() {
                       value={editForm.session_time}
                       onChange={handleChange}
                       placeholder="오전 10시"
-                      className="w-28 border border-gray-300 rounded-lg p-2 text-gray-900 outline-none focus:border-[#4A628A] text-center font-bold"
+                      className="w-28 border border-gray-300 rounded-lg p-2 text-gray-900 outline-none focus:border-brand text-center font-bold"
                     />
                   </td>
                   <td className="py-3 px-3">
@@ -581,7 +598,7 @@ export default function AdminSettings() {
                       min="0"
                       value={editForm.max_male}
                       onChange={handleChange}
-                      className="w-20 border border-gray-300 rounded-lg p-2 outline-none focus:border-[#4A628A] text-center text-blue-600 font-bold"
+                      className="w-20 border border-gray-300 rounded-lg p-2 outline-none focus:border-brand text-center text-male font-bold"
                     />
                   </td>
                   <td className="py-3 px-3">
@@ -591,7 +608,7 @@ export default function AdminSettings() {
                       min="0"
                       value={editForm.max_female}
                       onChange={handleChange}
-                      className="w-20 border border-gray-300 rounded-lg p-2 outline-none focus:border-[#4A628A] text-center text-red-500 font-bold"
+                      className="w-20 border border-gray-300 rounded-lg p-2 outline-none focus:border-brand text-center text-female font-bold"
                     />
                   </td>
                   <td className="py-3 px-3">
@@ -599,7 +616,7 @@ export default function AdminSettings() {
                       name="is_open"
                       value={editForm.is_open.toString()}
                       onChange={handleChange}
-                      className="border border-gray-300 rounded-lg p-2 text-gray-900 outline-none focus:border-[#4A628A] font-bold cursor-pointer"
+                      className="border border-gray-300 rounded-lg p-2 text-gray-900 outline-none focus:border-brand font-bold cursor-pointer"
                     >
                       <option value="true">🟢 오픈</option>
                       <option value="false">🔴 마감(닫힘)</option>
@@ -644,14 +661,14 @@ export default function AdminSettings() {
 
                   return isEditing ? (
                     // 수정 모드인 행
-                    <tr key={item.id} className="bg-blue-50/30 shadow-inner">
+                    <tr key={item.id} className="bg-brand/5 shadow-inner">
                       <td className="py-3 px-3">
                         <input
                           type="date"
                           name="target_date"
                           value={editForm.target_date}
                           onChange={handleChange}
-                          className="w-full border border-gray-300 rounded-lg p-2 text-gray-900 outline-none focus:border-[#4A628A] font-bold"
+                          className="w-full border border-gray-300 rounded-lg p-2 text-gray-900 outline-none focus:border-brand font-bold"
                         />
                       </td>
                       <td className="py-3 px-3">
@@ -660,7 +677,7 @@ export default function AdminSettings() {
                           name="session_time"
                           value={editForm.session_time}
                           onChange={handleChange}
-                          className="w-28 border border-gray-300 rounded-lg p-2 text-gray-900 outline-none focus:border-[#4A628A] text-center font-bold"
+                          className="w-28 border border-gray-300 rounded-lg p-2 text-gray-900 outline-none focus:border-brand text-center font-bold"
                         />
                       </td>
                       <td className="py-3 px-3">
@@ -670,7 +687,7 @@ export default function AdminSettings() {
                           min="0"
                           value={editForm.max_male}
                           onChange={handleChange}
-                          className="w-20 border border-gray-300 rounded-lg p-2 outline-none focus:border-[#4A628A] text-center text-blue-600 font-bold"
+                          className="w-20 border border-gray-300 rounded-lg p-2 outline-none focus:border-brand text-center text-male font-bold"
                         />
                       </td>
                       <td className="py-3 px-3">
@@ -680,7 +697,7 @@ export default function AdminSettings() {
                           min="0"
                           value={editForm.max_female}
                           onChange={handleChange}
-                          className="w-20 border border-gray-300 rounded-lg p-2 outline-none focus:border-[#4A628A] text-center text-red-500 font-bold"
+                          className="w-20 border border-gray-300 rounded-lg p-2 outline-none focus:border-brand text-center text-female font-bold"
                         />
                       </td>
                       <td className="py-3 px-3">
@@ -688,7 +705,7 @@ export default function AdminSettings() {
                           name="is_open"
                           value={editForm.is_open.toString()}
                           onChange={handleChange}
-                          className="border border-gray-300 rounded-lg p-2 text-gray-900 outline-none focus:border-[#4A628A] font-bold cursor-pointer"
+                          className="border border-gray-300 rounded-lg p-2 text-gray-900 outline-none focus:border-brand font-bold cursor-pointer"
                         >
                           <option value="true">🟢 오픈</option>
                           <option value="false">🔴 마감(닫힘)</option>
@@ -718,16 +735,16 @@ export default function AdminSettings() {
                       key={item.id}
                       className="hover:bg-gray-50 transition border-b border-gray-50"
                     >
-                      <td className="py-4 px-4 font-black text-gray-800 text-lg">
+                      <td className="py-4 px-4 font-bold text-gray-800 text-lg">
                         {item.target_date}
                       </td>
                       <td className="py-4 px-4 font-bold text-gray-600">
                         {item.session_time || "오전 10시"}
                       </td>
-                      <td className="py-4 px-4 text-blue-600 font-black text-lg">
+                      <td className="py-4 px-4 text-male font-bold text-lg">
                         {item.max_male}명
                       </td>
-                      <td className="py-4 px-4 text-red-500 font-black text-lg">
+                      <td className="py-4 px-4 text-female font-bold text-lg">
                         {item.max_female}명
                       </td>
                       <td className="py-4 px-4">
@@ -737,7 +754,7 @@ export default function AdminSettings() {
                         <div className="flex justify-center gap-2">
                           <button
                             onClick={() => handleEdit(item)}
-                            className="bg-gray-100 text-gray-600 p-2.5 rounded-lg hover:bg-[#4A628A] hover:text-white transition shadow-sm"
+                            className="bg-gray-100 text-gray-600 p-2.5 rounded-lg hover:bg-brand hover:text-white transition shadow-sm"
                             title="수정"
                           >
                             <Edit2 size={16} />
